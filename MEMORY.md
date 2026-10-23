@@ -4,10 +4,10 @@ Update this after major decisions, completed phases, or bugs that future agents 
 
 ## Current State
 
-- Current task: Agent setup done (Part 4). No app code yet.
-- Current phase: Before M0 (spike).
-- Next step: Propose the M0 spike plan (`requirements.txt`, venv, `scripts/spike.py`: TabPFN fit/predict on 300 rows on CPU; Gemma returns one schema-valid draft; record times and free RAM). Wait for approval before building.
-- Blocked by: none. M0 needs Ollama installed, a Gemma model pulled, and the TabPFN licence accepted at platform.priorlabs.ai. The user does or approves these.
+- Current task: M0 spike passed.
+- Current phase: M0 done; M1 (data + backtest) is next.
+- Next step: Propose M1: `data.py`, `labels.py`, `features.py`, backtest in `predict.py`, `sample/sample_posts.csv` (account 15), tests. Wait for approval.
+- Blocked by: none.
 
 ## Decisions
 
@@ -30,14 +30,20 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
 - Ollama 0.40.8 is installed; `gemma3:4b` is already pulled. `gemma4:e2b` is not pulled.
 - `media_type`: carousel, image, reel (the PRD says "photo"; use "image").
 - `content_category`: Beauty, Comedy, Fashion, Fitness, Food, Lifestyle, Music, Photography, Technology, Travel.
-- Python 3.14.4 is on PATH. Package installs not yet tried.
+- Python 3.14.4 is on PATH; all packages in requirements.txt installed fine on it.
+- M0 spike results (2026-10-23, `python scripts/spike.py`, account 15, 1,599 usable posts, CPU, Python 3.14.4, tabpfn 9.2.0, torch 2.14.1; packages installed fine on 3.14):
+  - Gemma `gemma3:4b`: one schema-valid draft on attempt 1, 63.8 s, 3.05 GB RAM free before the call. Chosen model; `gemma4:e2b` not tried.
+  - TabPFN 300 train / 100 test: fit 173.9 s (first run, likely includes loading weights), predict 28.2 s. Accuracy 0.26 vs baseline 0.30 ('above').
+  - TabPFN 1,000 train / 300 test (the real backtest size): fit 0.5 s, predict 60.3 s, about 5 GB RAM free throughout. Accuracy 0.383 vs baseline 0.38 ('below').
+  - Accuracies come from the oldest 1,300 posts of one account, not the real backtest. A 0.3-point gap is within noise. The features may carry little signal; M1 must report this honestly.
+  - Predict at 1,000 rows takes about 1 min on CPU, so what-if scoring in M3 must be batched.
 - Open: does the Kaggle data have real patterns (it may be simulated)? The backtest will show.
 - Open: will the real export from Shandrika arrive, and in which column format?
 
 ## Completed
 
 - [x] Agent setup files (AGENTS.md, CLAUDE.md, MEMORY.md, REVIEW-CHECKLIST.md, agent_docs/)
-- [ ] M0 Spike: TabPFN + Gemma run on this laptop; Gemma size chosen (target Fri 23 Oct)
+- [x] M0 Spike: TabPFN + Gemma run on this laptop; Gemma size chosen (gemma3:4b)
 - [ ] M1 Data + backtest: data/labels/features/predict, sample slice committed, tests pass (Fri 23 Oct)
 - [ ] M2 Drafting: 7 schema-valid drafts from a brief (Sat 24 Oct morning)
 - [ ] M3 Scoring + rewrite: what-if reasons, single rewrite, `pipeline.py` run folder (Sat 24 Oct)

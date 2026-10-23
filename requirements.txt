@@ -1,0 +1,9 @@
+tabpfn
+streamlit
+ollama
+pandas
+pydantic
+pytest
+ruff
+python-dotenv
+psutil
