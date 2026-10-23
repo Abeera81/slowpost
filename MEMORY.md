@@ -4,9 +4,9 @@ Update this after major decisions, completed phases, or bugs that future agents 
 
 ## Current State
 
-- Current task: M1 built and committed (profiles, DEV fetch, labels, features, backtest, signals, tests).
+- Current task: M1 fixes done (cutoff, 7-day test window, README credits, agent docs for multi-source). M2 plan (DEV drafting) awaiting approval.
 - Current phase: M1 done. M2 (drafting) is next.
-- Next step: M2 drafting with Gemma per source profile. Open items: fill author + link for the Kaggle credit in README; AGENTS.md and agent_docs still describe Instagram only.
+- Next step: M2 drafting with Gemma per source profile. README credits done (Kundan Sagar Bedmutha, Kaggle link; DEV public API).
 - Blocked by: none.
 
 ## Decisions
@@ -43,8 +43,8 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
 - DEV API probe (2026-10-23, read-only, nothing saved): `per_page=1000` works; one page covers only about 2-3 days for webdev (about 500 posts/day) and about 9 days for beginners, so reaching 14+ days old needs many pages (12 pages: webdev reaches 24 Sep, beginners 16 Jul). Rows overlap across tags (about 1% for beginners). Among posts at least 14 days old: about 87% (webdev) and 85% (beginners) have 0 reactions, 12% / 11% have 1-4, 1% / 4% have 5+; median 0. About 28-31% have a cover image, mean 3.8 tags per post, 7-9% have comments. `tag_list` is a list; the `user` object (author) must not be stored.
 - M1 results (2026-10-23, `scripts/run_backtest.py`):
   - DEV fetch (`--days 60`): 44,428 unique posts, 2026-08-10 to 2026-10-09, 73 requests (webdev 37 pages, python 16, javascript 11, beginners 9). 15.6% have at least 1 reaction (label "some_reactions"). Label = reactions >= 1.
-  - DEV backtest (1,000 train sampled with seed 0 from posts before the test window; test = newest 1,500, only 8-9 Oct): train 14.2% yes, test 21.9% yes. TabPFN predicts 'no' for every test post, so balanced accuracy 0.500 = baseline 0.500, but ROC AUC 0.608 (95% CI 0.570-0.642): a real but weak ranking signal. Verdict wording: "Some signal". Cover image is the strongest single feature (yes: 76.6% no-reaction vs no: 87.9%). Need a probability cutoff (not argmax) to flag posts: M3.
-  - Instagram sample (account 15): 1,000 train / 320 test. Balanced accuracy 0.352 vs 0.333 (CI -0.025 to +0.066); AUC 0.526 (0.481-0.572). Verdict: no better than baseline. No feature has a corrected p below 0.05.
+  - DEV backtest (revised 2026-10-23: cutoff + new test window): train 1,000 sampled (seed 0) from older posts; test 2,000 sampled from the newest 7 days (5,863 posts, 2 Oct to 9 Oct). Cutoff = training share of 'yes' = 0.141 (predict yes when P > cutoff). Train 14.1% yes, test 21.6% yes. TabPFN balanced accuracy 0.544 vs baseline 0.500 (gap +0.044, CI +0.019 to +0.070); ROC AUC 0.588 (CI 0.556-0.620). Verdict: better than baseline (weak signal). Raw accuracy 0.492 vs 0.784 (reference only; the model flags 57% of posts as yes). Cover image is the strongest single feature (no cover: 87.9% no-reaction vs cover: 76.6%).
+  - Instagram sample (account 15): 1,000 train; newest week too small so the newest 20% (320 posts) is the test window. Balanced accuracy 0.379 vs 0.333 (gap +0.045, CI -0.001 to +0.095); AUC 0.526 (0.479-0.573). Verdict: no better than baseline. No feature has a corrected p below 0.05 (smallest 0.12, hashtags).
   - Training is a random seeded sample from all older posts (user decision), not the 1,000 just before the test window.
 - Open: does the Kaggle data have real patterns (it may be simulated)? The signal check says little or none.
 - Resolved: Shandrika's real export is not coming.

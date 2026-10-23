@@ -11,7 +11,7 @@ from slowpost.data import MissingColumnsError, load_posts
 from slowpost.devfetch import FIELDS, article_to_row, in_window
 from slowpost.features import build_matrices
 from slowpost.labels import apply_labels, fit_thresholds
-from slowpost.predict import evaluate, time_split, verdict
+from slowpost.predict import evaluate, predict_labels, time_split, verdict
 from slowpost.profiles import DEV, INSTAGRAM
 from slowpost.signals import signal_summary
 
@@ -112,11 +112,29 @@ def test_main_tag_categories_come_from_training_only():
 # ---- split ----
 
 def test_no_future_rows_in_training():
-    df = load_posts(dev_raw(), DEV)
+    df = load_posts(dev_raw(2500), DEV)
     train, test = time_split(df, DEV, seed=3)
     assert train["post_datetime"].max() < test["post_datetime"].min()
-    assert len(train) <= 1000
+    assert len(train) <= 1000 and len(test) <= 2000
     assert set(train.index).isdisjoint(test.index)
+
+
+def test_test_window_is_a_seeded_sample_of_the_newest_week():
+    df = load_posts(dev_raw(2500), DEV)
+    train, test = time_split(df, DEV, seed=5, max_test=150)
+    week_start = df["post_datetime"].max() - pd.Timedelta(days=7)
+    assert len(test) == 150 and (test["post_datetime"] > week_start).all()
+    assert (train["post_datetime"] <= week_start).all()
+    assert test.attrs["window"].startswith("newest 7 days")
+    _, again = time_split(df, DEV, seed=5, max_test=150)
+    assert list(test.index) == list(again.index)
+
+
+def test_small_history_falls_back_to_newest_fifth():
+    df = load_posts(dev_raw(300), DEV)  # about 55 posts in the last week: too few
+    train, test = time_split(df, DEV)
+    assert test.attrs["window"].startswith("newest 20%")
+    assert len(test) == 60 and train["post_datetime"].max() < test["post_datetime"].min()
 
 
 def test_split_ties_do_not_straddle_the_cut():
@@ -199,19 +217,37 @@ def test_fourteen_day_filter():
 
 # ---- evaluation ----
 
-def test_verdict_rule():
+def test_cutoff_is_the_training_share_of_yes():
+    classes = ["no", "yes"]
+    proba = np.array([[0.9, 0.1], [0.84, 0.16], [0.7, 0.3]])
+    # training share of 'yes' is 0.142: P(yes) above it flips the label
+    assert list(predict_labels(proba, classes, np.array([0.858, 0.142]))) == ["no", "yes", "yes"]
+    # a higher training share needs a higher P(yes)
+    assert list(predict_labels(proba, classes, np.array([0.8, 0.2]))) == ["no", "no", "yes"]
+
+
+def test_evaluate_records_cutoff_and_uses_both_measures():
     rng = np.random.default_rng(0)
     y = rng.choice(["no", "yes"], 800, p=[0.85, 0.15])
-    classes = ["no", "yes"]
+    classes, priors = ["no", "yes"], np.array([0.85, 0.15])
     noise = rng.random((800, 1))
-    res = evaluate(y, np.hstack([1 - noise, noise]), classes, "no", n_boot=200)
-    assert res["baseline_balanced_accuracy"] == pytest.approx(0.5)
+    res = evaluate(y, np.hstack([1 - noise, noise]), classes, "no", priors, n_boot=200)
+    assert res["cutoff"] == 0.15 and res["baseline_balanced_accuracy"] == pytest.approx(0.5)
     assert res["verdict"].startswith("No better")
     p_yes = np.where(y == "yes", 0.8, 0.1)[:, None]
-    res = evaluate(y, np.hstack([1 - p_yes, p_yes]), classes, "no", n_boot=200)
-    assert res["verdict"].startswith(("Better", "Some signal")) and res["auc"] > 0.95
-    assert verdict({"ba_gap_ci": (-0.2, -0.05), "auc_ci": (0.3, 0.45), "chance_auc": 0.5}
-                   ).startswith("Worse")
+    res = evaluate(y, np.hstack([1 - p_yes, p_yes]), classes, "no", priors, n_boot=200)
+    assert res["verdict"].startswith("Better") and res["auc"] > 0.95
+    assert res["balanced_accuracy"] > 0.9
+
+
+def test_verdict_rule():
+    def v(ba, auc):
+        return verdict({"ba_gap_ci": ba, "auc_ci": auc, "chance_auc": 0.5})
+    assert v((0.02, 0.1), (0.55, 0.6)).startswith("Better")
+    assert v((-0.01, 0.1), (0.55, 0.6)).startswith("Some signal: the model ranks")
+    assert v((0.02, 0.1), (0.45, 0.6)).startswith("Some signal: the model's labels")
+    assert v((-0.2, -0.05), (0.3, 0.45)).startswith("Worse")
+    assert v((-0.05, 0.05), (0.45, 0.55)).startswith("No better")
 
 
 # ---- signal summary ----

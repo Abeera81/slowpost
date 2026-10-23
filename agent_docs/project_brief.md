@@ -2,23 +2,23 @@
 
 ## Product
 
-- One-line vision: Drafts next week's Instagram posts overnight on your laptop and predicts which ones will underperform, from the account's own history.
-- Target users: One person who plans an Instagram account's posts weekly (social media manager, small business owner, creator).
-- Primary user outcome: In the evening, load the past-posts CSV and type a two-line brief, then start the run. In the morning, open a week calendar of 7 drafts, each labelled below, around or above with a reason and the backtest result. Edit them, download the CSV, and schedule them by hand.
+- One-line vision: Learns from a post history, drafts next week's posts overnight on your laptop, and flags the ones likely to underperform, with an honest backtest that says when there is no signal.
+- Target users: Anyone who posts regularly and plans posts ahead.
+- Demo source: real DEV posts from DEV's public API (tags webdev, python, javascript, beginners). Test case: the Kaggle Instagram sample, where the app must report that it finds no signal.
+- Primary user outcome: In the evening, load a post history (or fetched DEV posts) and type a short brief, then start the run. In the morning, open a plan of drafts, each with a predicted label, a reason, and the backtest result. Edit them and download the CSV.
 
 ## Scope
 
 - Must ship (acceptance criteria are in `docs/PRD-SlowPost-MVP.md`):
-  - Load past posts: upload or "Use sample data"; show row count, date range, columns found or missing, skipped rows
-  - Backtest: time-ordered split; TabPFN vs majority-label baseline; plain verdict; saved result
-  - Draft next week's posts: 7 text-only, schema-validated Gemma drafts; works offline
-  - Score and rewrite: label, confidence, and plain-language reason per draft; "below" drafts rewritten at most once, keeping before and after
-  - Calendar and export: 7 colour-and-word-labelled cards, editable, CSV download
-- Nice to have (only after the core works): overnight scheduling, best-time-slot suggestion, run log with timings
+  - Source profiles (DEV, Instagram), with a column summary and clear errors for missing columns
+  - Backtest: time-ordered; TabPFN vs most-common-label baseline; balanced accuracy at a training-share cutoff, ROC AUC, plain verdict; signal summary by feature
+  - Draft next posts (DEV first): schema-validated Gemma drafts; works offline
+  - Score and rewrite: label, confidence, plain-language reason per draft; weak drafts rewritten at most once
+  - Plan and export: editable cards, CSV download
+- Nice to have (only after the core works): overnight scheduling, best-time-slot suggestion, run log with timings, a Meta export profile
 - Not in v1:
-  - Auto-posting, or logging in to Instagram/Meta
+  - Auto-posting, or logging in to any platform
   - Image or video generation
-  - Multiple accounts, other platforms
   - Hosted version (would send data off the laptop)
   - Fine-tuning any model
 
@@ -33,6 +33,6 @@
 
 ## AI Position
 
-- AI is used for: drafting and rewriting caption text (Gemma), and predicting performance labels (TabPFN). Both run locally.
+- AI is used for: drafting and rewriting post text (Gemma), and predicting performance labels (TabPFN). Both run locally.
 - AI is not used for: computing features or metrics, deciding what is posted, or anything that leaves the laptop.
 - Human approval required for: nothing is automated outward. The user copies drafts out manually.

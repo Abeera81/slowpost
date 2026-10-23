@@ -57,12 +57,15 @@ def main() -> None:
     print("\nBacktest (TabPFN, local, CPU)...")
     r = backtest(df, profile)
     print(f"train: {r['n_train']} posts sampled from {r['train_range'][0]} to {r['train_range'][1]}")
-    print(f"test:  {r['n_test']} newest posts {r['test_range'][0]} to {r['test_range'][1]}")
+    print(f"test:  {r['n_test']} posts, {r['test_window']}, "
+          f"{r['test_range'][0]} to {r['test_range'][1]}")
+    if r["cutoff"] is not None:
+        print(f"cutoff (training share of '{r['positive']}'): predict it when P > {r['cutoff']:.3f}")
     print(f"label thresholds (training rows only): {r['thresholds']}")
     print(f"train mix {r['train_mix']}; test mix {r['test_mix']}")
     print(f"TabPFN predicted mix {r['predicted_mix']} ({r['predict_seconds']} s)")
     print(f"Baseline always says '{r['baseline_label']}'")
-    print(f"balanced accuracy: TabPFN {r['balanced_accuracy']:.3f} vs baseline "
+    print(f"balanced accuracy at that cutoff: TabPFN {r['balanced_accuracy']:.3f} vs baseline "
           f"{r['baseline_balanced_accuracy']:.3f}; gap {r['ba_gap']:+.3f} "
           f"(95% CI {r['ba_gap_ci'][0]:+.3f} to {r['ba_gap_ci'][1]:+.3f})")
     print(f"ROC AUC: {r['auc']:.3f} (95% CI {r['auc_ci'][0]:.3f} to {r['auc_ci'][1]:.3f}; "

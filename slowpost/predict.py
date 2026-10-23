@@ -13,27 +13,39 @@ from .labels import apply_labels, fit_thresholds
 from .profiles import Profile
 
 MAX_TRAIN = 1000  # CPU limit for TabPFN
-MAX_TEST = 1500  # predicting 1,500 rows takes about 160 s on this laptop
+MAX_TEST = 2000  # predicting 1,500 rows took about 160 s on this laptop
+TEST_DAYS = 7
+MIN_TEST = 100  # fewer posts than this in the newest week -> use the newest 20% instead
 MIN_TRAIN = 30
 
 
-def time_split(df: pd.DataFrame, profile: Profile, test_frac: float = 0.2,
+def time_split(df: pd.DataFrame, profile: Profile, test_days: int = TEST_DAYS,
                max_test: int = MAX_TEST, max_train: int = MAX_TRAIN, seed: int = 0
                ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Test = the newest posts. Train = a random sample (fixed seed) of up to `max_train`
-    posts drawn from ALL posts older than the test window, so every weekday and hour is covered.
-    Nothing in train is newer than anything in test (the cut is on the timestamp, so ties
-    cannot straddle it)."""
-    df = df.sort_values(profile.time_col, kind="stable").reset_index(drop=True)
-    n_test = min(max_test, max(1, math.ceil(len(df) * test_frac)))
-    t0 = df[profile.time_col].iloc[len(df) - n_test]
-    test = df[df[profile.time_col] >= t0]
-    pool = df[df[profile.time_col] < t0]
+    """Test = a random sample (fixed seed) of up to `max_test` posts from the newest
+    `test_days` days. Train = a random sample (fixed seed) of up to `max_train` posts from ALL
+    older posts, so every weekday and hour is covered. Nothing in train is newer than anything
+    in test (the cut is on the timestamp, so ties cannot straddle it).
+
+    A small history (fewer than MIN_TEST posts in the newest week) falls back to the newest
+    20% of posts as the test window. `test.attrs["window"]` says which rule was used."""
+    col = profile.time_col
+    df = df.sort_values(col, kind="stable").reset_index(drop=True)
+    cut = df[col].iloc[-1] - pd.Timedelta(days=test_days)
+    window = f"newest {test_days} days"
+    if (df[col] > cut).sum() < MIN_TEST:
+        n_recent = max(1, math.ceil(len(df) * 0.2))
+        cut = df[col].iloc[len(df) - n_recent - 1] if n_recent < len(df) else df[col].iloc[0]
+        window = "newest 20% of posts (the newest week was too small)"
+    recent, pool = df[df[col] > cut], df[df[col] <= cut]
     if len(pool) < MIN_TRAIN:
         raise ValueError(f"Only {len(pool)} posts are older than the test window; "
                          f"need at least {MIN_TRAIN} to train.")
+    test = recent.sample(n=min(max_test, len(recent)), random_state=seed)
+    test = test.sort_values(col, kind="stable")
+    test.attrs["window"] = f"{window}; {len(recent)} posts, {len(test)} sampled"
     train = pool.sample(n=min(max_train, len(pool)), random_state=seed)
-    train = train.sort_values(profile.time_col, kind="stable")
+    train = train.sort_values(col, kind="stable")
     return train, test
 
 
@@ -47,11 +59,20 @@ def _auc(y_true: np.ndarray, proba: np.ndarray, classes: list[str]) -> float:
         return float("nan")
 
 
+def predict_labels(proba: np.ndarray, classes: list[str], priors: np.ndarray) -> np.ndarray:
+    """Binary: 'yes' (the second class) when P(yes) is above its training share.
+    More classes: pick the class with the highest probability relative to its training share.
+    `priors` comes from training rows only."""
+    if len(classes) == 2:
+        return np.where(proba[:, 1] > priors[1], classes[1], classes[0])
+    return np.asarray(classes)[(proba / priors).argmax(axis=1)]
+
+
 def evaluate(y_true: np.ndarray, proba: np.ndarray, classes: list[str], baseline_label: str,
-             n_boot: int = 1000, seed: int = 0) -> dict:
+             priors: np.ndarray, n_boot: int = 1000, seed: int = 0) -> dict:
     """Metrics for the model and the baseline, with bootstrap 95% intervals on the gaps."""
     y_true = np.asarray(y_true)
-    pred = np.asarray(classes)[proba.argmax(axis=1)]
+    pred = predict_labels(proba, classes, np.asarray(priors))
     base_pred = np.full(len(y_true), baseline_label)
 
     def gap_ba(idx: np.ndarray) -> float:
@@ -79,6 +100,7 @@ def evaluate(y_true: np.ndarray, proba: np.ndarray, classes: list[str], baseline
         "auc": _auc(y_true, proba, classes),
         "auc_ci": (float(auc_lo), float(auc_hi)),
         "chance_auc": 0.5,
+        "cutoff": float(priors[1]) if len(classes) == 2 else None,  # P(yes) must exceed this
         "predicted_mix": pd.Series(pred).value_counts(normalize=True).round(3).to_dict(),
         "test_mix": pd.Series(y_true).value_counts(normalize=True).round(3).to_dict(),
     }
@@ -87,18 +109,20 @@ def evaluate(y_true: np.ndarray, proba: np.ndarray, classes: list[str], baseline
 
 
 def verdict(res: dict) -> str:
-    """One plain sentence. 'Beats' needs an interval fully above chance."""
+    """One plain sentence from both measures. Each needs a 95% interval fully above chance."""
     ba_better = res["ba_gap_ci"][0] > 0
     auc_better = res["auc_ci"][0] > res["chance_auc"]
-    ba_worse = res["ba_gap_ci"][1] < 0
-    if ba_better:
-        return ("Better than the baseline: the model separates posts by label more than "
-                "chance would, on this test window.")
+    if ba_better and auc_better:
+        return ("Better than the baseline: the model ranks posts better than chance and its "
+                "labels beat the baseline's, on this test window.")
     if auc_better:
         return ("Some signal: the model ranks posts better than chance (ROC AUC above 0.5), "
-                "but at the default cutoff its labels are no better than the baseline's, "
-                "so it cannot yet flag individual posts reliably.")
-    if ba_worse:
+                "but its labels are not clearly better than the baseline's, so individual "
+                "flags are unreliable.")
+    if ba_better:
+        return ("Some signal: the model's labels beat the baseline's, but its ranking "
+                "(ROC AUC) is not clearly above chance, so treat this with caution.")
+    if res["ba_gap_ci"][1] < 0:
         return "Worse than the baseline on this test window."
     return ("No better than the baseline: the model is not separating posts by label any "
             "better than guessing, so treat its predictions as noise.")
@@ -122,15 +146,18 @@ def backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwargs) 
     proba = clf.predict_proba(x_test)
     seconds = time.perf_counter() - t0
 
-    res = evaluate(y_test.values, proba, [str(c) for c in clf.classes_],
-                   y_train.mode().iloc[0], seed=seed)
+    classes = [str(c) for c in clf.classes_]
+    priors = y_train.value_counts(normalize=True).reindex(classes).to_numpy()  # training only
+    res = evaluate(y_test.values, proba, classes, y_train.mode().iloc[0], priors, seed=seed)
     res.update({
         "profile": profile.name,
         "n_train": len(train),
+        "positive": classes[1] if len(classes) == 2 else None,
         "thresholds": thresholds,
         "train_range": (str(train[profile.time_col].min()), str(train[profile.time_col].max())),
         "test_range": (str(test[profile.time_col].min()), str(test[profile.time_col].max())),
         "train_mix": y_train.value_counts(normalize=True).round(3).to_dict(),
+        "test_window": test.attrs.get("window", ""),
         "predict_seconds": round(seconds, 1),
     })
     return res
