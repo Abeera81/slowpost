@@ -4,9 +4,9 @@ Update this after major decisions, completed phases, or bugs that future agents 
 
 ## Current State
 
-- Current task: M0 spike passed.
-- Current phase: M0 done; M1 (data + backtest) is next.
-- Next step: Propose M1: `data.py`, `labels.py`, `features.py`, backtest in `predict.py`, `sample/sample_posts.csv` (account 15), tests. Wait for approval.
+- Current task: M1 built and committed (profiles, DEV fetch, labels, features, backtest, signals, tests).
+- Current phase: M1 done. M2 (drafting) is next.
+- Next step: M2 drafting with Gemma per source profile. Open items: fill author + link for the Kaggle credit in README; AGENTS.md and agent_docs still describe Instagram only.
 - Blocked by: none.
 
 ## Decisions
@@ -14,6 +14,8 @@ Update this after major decisions, completed phases, or bugs that future agents 
 - 2026-10-23 Shell is Git Bash on Windows (user instruction). This replaces the Tech Design's PowerShell commands: use `source .venv/Scripts/activate`. It still runs natively on Windows, so the reason WSL was rejected (memory cap) doesn't apply.
 - 2026-10-23 Full dataset moved to `data/Instagram_Analytics.csv`. `data/`, `.venv/`, `.env` are git-ignored.
 - 2026-10-23 Stack, metric, labels, features, and 80/20 time split as in `docs/TechDesign-SlowPost-MVP.md`.
+- 2026-10-23 Decision change (user): Shandrika's real export is not coming. Slow Post works on any post history via one source profile per data source. Demo on real DEV posts (DEV public API, tags webdev, python, javascript, beginners, posts at least 14 days old, no author names or usernames). Kaggle Instagram stays as the no-signal test case and the app must report that honestly. Target user: anyone who posts regularly.
+- 2026-10-23 Signal check (23 Oct 2026, `scripts/signal_check.py`): the Kaggle Instagram file is close to random noise. Pooled over all 20 accounts no feature moves engagement (every Kruskal-Wallis p above 0.12; label mix about 33/33/33 in every group). Account 15 alone shows p below 0.05 for media_type, has_call_to_action and hashtags_count, but the effects are small and likely chance across 20 accounts x 6 features. Pooled time-ordered backtest (1,000 train, 1,500 test): TabPFN 0.341 vs baseline 0.317, about 1.9 standard errors, with TabPFN predicting 'around' 0.3% of the time.
 
 ## AI / Tooling Decisions
 
@@ -38,14 +40,20 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
   - Accuracies come from the oldest 1,300 posts of one account, not the real backtest. A 0.3-point gap is within noise. The features may carry little signal; M1 must report this honestly.
   - Predict at 1,000 rows takes about 1 min on CPU, so what-if scoring in M3 must be batched.
 - Signal check (2026-10-23, `scripts/signal_check.py`): pooled over all 20 accounts, no feature moves engagement (every group's mean is within 0.5-3% of the overall mean; every Kruskal-Wallis p is above 0.12; label mix is about 33/33/33 in every group). Account 15 alone has p < 0.05 for media_type (0.033), has_call_to_action (0.009) and hashtags_count (0.004), but the effects are small, hashtags is not monotonic, and it is one of 20 accounts x 6 features, so chance is a likely explanation. Pooled time-ordered backtest (1,000 train, 1,500 test): TabPFN 0.341 vs baseline 0.317 (+0.023, about 1.9 standard errors); TabPFN predicted 'around' only 0.3% of the time, and the baseline's label is an arbitrary tie-break. The data looks close to random noise (possibly simulated). Plan M1 to report this honestly; do not overstate.
+- DEV API probe (2026-10-23, read-only, nothing saved): `per_page=1000` works; one page covers only about 2-3 days for webdev (about 500 posts/day) and about 9 days for beginners, so reaching 14+ days old needs many pages (12 pages: webdev reaches 24 Sep, beginners 16 Jul). Rows overlap across tags (about 1% for beginners). Among posts at least 14 days old: about 87% (webdev) and 85% (beginners) have 0 reactions, 12% / 11% have 1-4, 1% / 4% have 5+; median 0. About 28-31% have a cover image, mean 3.8 tags per post, 7-9% have comments. `tag_list` is a list; the `user` object (author) must not be stored.
+- M1 results (2026-10-23, `scripts/run_backtest.py`):
+  - DEV fetch (`--days 60`): 44,428 unique posts, 2026-08-10 to 2026-10-09, 73 requests (webdev 37 pages, python 16, javascript 11, beginners 9). 15.6% have at least 1 reaction (label "some_reactions"). Label = reactions >= 1.
+  - DEV backtest (1,000 train sampled with seed 0 from posts before the test window; test = newest 1,500, only 8-9 Oct): train 14.2% yes, test 21.9% yes. TabPFN predicts 'no' for every test post, so balanced accuracy 0.500 = baseline 0.500, but ROC AUC 0.608 (95% CI 0.570-0.642): a real but weak ranking signal. Verdict wording: "Some signal". Cover image is the strongest single feature (yes: 76.6% no-reaction vs no: 87.9%). Need a probability cutoff (not argmax) to flag posts: M3.
+  - Instagram sample (account 15): 1,000 train / 320 test. Balanced accuracy 0.352 vs 0.333 (CI -0.025 to +0.066); AUC 0.526 (0.481-0.572). Verdict: no better than baseline. No feature has a corrected p below 0.05.
+  - Training is a random seeded sample from all older posts (user decision), not the 1,000 just before the test window.
 - Open: does the Kaggle data have real patterns (it may be simulated)? The signal check says little or none.
-- Open: will the real export from Shandrika arrive, and in which column format?
+- Resolved: Shandrika's real export is not coming.
 
 ## Completed
 
 - [x] Agent setup files (AGENTS.md, CLAUDE.md, MEMORY.md, REVIEW-CHECKLIST.md, agent_docs/)
 - [x] M0 Spike: TabPFN + Gemma run on this laptop; Gemma size chosen (gemma3:4b)
-- [ ] M1 Data + backtest: data/labels/features/predict, sample slice committed, tests pass (Fri 23 Oct)
+- [x] M1 Profiles + data + backtest: `fetch_dev_posts.py`, source profiles, labels, features, backtest (balanced accuracy, AUC if binary), signal summary, tests; sample slice (account 15) committed (Fri 23 Oct)
 - [ ] M2 Drafting: 7 schema-valid drafts from a brief (Sat 24 Oct morning)
 - [ ] M3 Scoring + rewrite: what-if reasons, single rewrite, `pipeline.py` run folder (Sat 24 Oct)
 - [ ] M4 UI: Streamlit upload, backtest, calendar, edit, CSV download (Sat 24 Oct afternoon)

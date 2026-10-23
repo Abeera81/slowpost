@@ -7,3 +7,6 @@ pytest
 ruff
 python-dotenv
 psutil
+scikit-learn
+scipy
+numpy

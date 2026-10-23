@@ -3,16 +3,23 @@
 ## Overview
 
 **Product Name:** Slow Post
-**Problem Statement:** Planning a week of Instagram posts takes an evening of writing, and even then the person guesses which posts will do well. The account's own past results already show what works, but nobody has time to read them before every post.
-**MVP Goal:** A tool that runs on one laptop, learns from an account's past posts, drafts next week's 7 posts overnight, and marks which drafts are likely to underperform, with a backtest showing its predictions beat a simple baseline.
+**Problem Statement:** Planning a week of posts takes an evening of writing, and even then the person guesses which posts will do well. The account's own past results show what works, if anything does, but nobody has time to read them before every post.
+**MVP Goal:** A tool that runs on one laptop, learns from any account's post history, drafts next week's 7 posts overnight, and marks which drafts are likely to underperform. A backtest shows honestly whether its predictions beat a simple baseline, including when they do not. Demoed on real DEV posts from DEV's public API; the Kaggle Instagram dataset stays as the "no signal" test case.
 **Target Launch:** Submitted to the DEV Hacktoberfest Week 3 "Slow and Steady" challenge by 25 Oct 2026, 11:59 PM PDT (26 Oct, 11:59 AM PKT).
+
+## Decision Update (23 Oct 2026)
+
+- **Real export dropped.** Shandrika's Instagram export is not coming. Slow Post is built to work on any post history, with one "source profile" per data source (column mapping, features, label rule, draft format).
+- **Demo source: DEV posts.** Real posts fetched from DEV's public API for the tags webdev, python, javascript and beginners (posts at least 14 days old, no author names or usernames stored).
+- **Instagram (Kaggle) is the no-signal test case.** Signal check (23 Oct 2026, `scripts/signal_check.py`): the Kaggle Instagram file is close to random noise. Pooled over all 20 accounts no feature moves engagement (every Kruskal-Wallis p above 0.12; label mix about 33/33/33 in every group). Account 15 alone shows p below 0.05 for media_type, has_call_to_action and hashtags_count, but the effects are small and likely chance across 20 accounts x 6 features. Pooled time-ordered backtest (1,000 train, 1,500 test): TabPFN 0.341 vs baseline 0.317, about 1.9 standard errors, with TabPFN predicting 'around' 0.3% of the time. The app must report a no-signal source honestly instead of hiding it.
+- **Target user widened:** anyone who posts regularly, not only Instagram account managers.
 
 ## Target Users
 
 ### Primary User Profile
-**Who:** One person who runs an Instagram account and plans posts weekly: a social media manager, a small business owner, or a creator.
+**Who:** Anyone who posts regularly and plans posts weekly: a developer writing on DEV, a social media manager, a small business owner, or a creator.
 **Problem:** Writing a week of posts takes hours, and there is no quick way to know which drafts will flop before publishing.
-**Current Solution:** Writing captions by hand or with a chatbot, then guessing; checking Insights after the fact.
+**Current Solution:** Writing posts by hand or with a chatbot, then guessing; checking stats after the fact.
 **Why They'll Switch:** Slow Post does the drafting overnight and predicts each draft's performance from that account's own history, on their own laptop, for free, without sending the account's data anywhere.
 
 ### User Persona: Javeria (builder and first user)
@@ -24,7 +31,7 @@
 ## User Journey
 
 ### The Story
-1. In the evening, Javeria exports the account's past posts as a CSV (or uses the sample dataset) and drops it into Slow Post.
+1. In the evening, Javeria picks a source (the DEV demo posts, a CSV export, or the sample dataset) and loads the past posts.
 2. She types a two-line brief for next week, e.g. "Open house Saturday in Fairfield; staging tips; one client testimonial".
 3. She clicks **Start overnight run** and goes to sleep.
 4. Slow Post checks the history, runs the backtest, has Gemma write 7 drafts, scores each with TabPFN, rewrites low scorers once and scores them again.
@@ -43,21 +50,22 @@
 ### Core Features (Must Have)
 
 #### 1. Load past posts
-- **Description:** Accepts a CSV of past posts (the public Kaggle Instagram Analytics dataset now, a Meta Business Suite export later), maps its columns to a standard set and reports what it found.
+- **Description:** Loads past posts from a source with a **source profile** (DEV posts fetched from DEV's public API, the Kaggle Instagram Analytics dataset, and room for a Meta Business Suite export later). The profile maps columns to a standard set, and defines the features, the label rule and the draft format. The app reports what it found.
 - **User Value:** Works with the file the user already has; no account login.
 - **Success Criteria:**
-  - User can upload a CSV or click "Use sample data"
+  - User can pick a source, upload a CSV, or click "Use sample data"
+  - Adding a new source means adding a profile; the rest of the code does not change
   - System shows row count, date range, and which needed columns were found or missing
   - Rows missing an engagement value are skipped and counted, not silently dropped
   - Uploaded data stays on the local machine and is never committed to git
 - **Priority:** Critical
 
 #### 2. Backtest
-- **Description:** Labels each past post as below, around or above the account's typical engagement; hides the most recent posts in time order, predicts them with TabPFN using only older posts, and compares with a simple baseline (always guessing the most common label).
+- **Description:** Labels each past post using the source's label rule (Instagram: below, around or above by thirds; DEV: a rule chosen from the real reaction distribution). Hides the most recent posts in time order, predicts them with TabPFN using only older posts, and compares with a simple baseline (always guessing the most common label).
 - **User Value:** Shows honestly whether the predictions can be trusted before using them.
 - **Success Criteria:**
   - Split is by date: the model never sees posts newer than the ones it predicts
-  - Screen shows TabPFN accuracy, baseline accuracy and number of test posts
+  - Screen shows TabPFN balanced accuracy (and ROC AUC when the label is binary) next to the most-common-label baseline, the number of test posts, and a plain verdict sentence
   - If TabPFN does not beat the baseline, the screen says so plainly
   - Result is saved so the article can quote it
 - **Priority:** Critical
@@ -66,13 +74,13 @@
 - **Description:** A local Gemma model (via Ollama) writes 7 text-only drafts from the brief and the account's best past captions.
 - **User Value:** Removes the blank-page work.
 - **Success Criteria:**
-  - Each draft has: post type (photo, carousel or reel), suggested day and time, caption with call-to-action, hashtags, and a visual idea described in words
+  - Each draft has the fields its source profile defines (Instagram: post type, suggested day and time, caption with call-to-action, hashtags, visual idea; DEV: title, tags, suggested day and time, outline; exact fields set at M2)
   - Output is checked against a fixed structure; a malformed draft is retried once, then reported, never shown half-filled
   - Works with the Wi-Fi off after models are downloaded
 - **Priority:** Critical
 
 #### 4. Score and rewrite
-- **Description:** Code turns each draft into the same features used for past posts (type, weekday, hour, caption length, hashtag count, call-to-action yes/no, etc.); TabPFN predicts its label and confidence. Drafts predicted "below" are rewritten once by Gemma with a hint and scored again.
+- **Description:** Code turns each draft into the same features used for past posts (defined by the source profile, e.g. weekday, hour, length, tag count); TabPFN predicts its label and confidence. Drafts predicted in the lowest band are rewritten once by Gemma with a hint and scored again.
 - **User Value:** Flags likely flops before they are posted.
 - **Success Criteria:**
   - Every draft shows label, confidence and the main reason in plain words
@@ -101,16 +109,16 @@
 | Logging in to Instagram / Meta | Not needed; CSV export is enough | Version 2 |
 | Image or video generation | Large effort; not needed for scoring | Version 2 |
 | Multiple accounts in one workspace | One account proves the idea | Version 2 |
-| Other platforms (Facebook, LinkedIn) | Different columns | Version 2 |
+| Sources with no profile yet (Meta export, Facebook, LinkedIn) | Each needs its own profile | Version 2 |
 | Hosted web version | Would send data off the laptop | Not planned |
 | Fine-tuning any model | Out of time | Not planned |
 
 ## Success Metrics
 
 ### Primary Metrics
-1. **Backtest accuracy above baseline:** TabPFN beats the always-most-common-label baseline on the held-out posts, by 26 Oct 2026
+1. **Honest backtest for both sources:** DEV posts and the Instagram no-signal case each get a backtest with balanced accuracy (and ROC AUC when binary) next to the baseline, by 26 Oct 2026. A win is not required; a plain verdict is.
    - How to measure: Backtest screen (Feature 2)
-   - Why it matters: Proves the predictions add value; the core judging evidence
+   - Why it matters: Shows where the predictions add value and where they do not
 2. **Real weekly plan completed:** One full week of 7 drafts produced and timed against planning by hand, by 25 Oct 2026
    - How to measure: Timed run log plus a hand-planning estimate
    - Why it matters: The "lazy payoff" story judges reward
@@ -151,7 +159,7 @@
 - UI responds within 2 seconds on load
 - Full overnight run under 30 minutes on the builder's laptop (to be measured)
 
-**Security/Privacy:** No accounts. Uploaded CSVs and results stay on the laptop in a git-ignored folder. TabPFN runs in local mode only (not the Prior Labs cloud API). No telemetry. The article shows only overall results and anonymised examples.
+**Security/Privacy:** No accounts. Uploaded CSVs, fetched DEV posts (`data/dev_posts.csv`) and results stay on the laptop in a git-ignored folder. DEV posts are fetched from a public API; author names and usernames are not stored. TabPFN runs in local mode only (not the Prior Labs cloud API). No telemetry. The article shows only overall results and anonymised examples.
 **Scalability:** Not applicable; single user, single machine.
 
 ## AI / Automation Scope
@@ -184,11 +192,12 @@
 - Build follows the vibe-coding-prompt-template workflow with Claude Code
 
 ## Open Questions & Assumptions
-- Open: Exact column names in `Instagram_Analytics.csv`; confirm from the header row before building Feature 1.
-- Open: The Kaggle dataset covers many accounts and may be simulated; decide whether to filter to one account or sample a slice.
-- Open: Will Shandrika's real export arrive in time, and is her account Professional?
-- Open: Laptop RAM/GPU, which decides the Gemma model size.
-- Assumption: Engagement = (likes + comments + shares + saves) ÷ reach, labelled by thirds of the account's history.
+- Resolved: Column names of `Instagram_Analytics.csv` confirmed from the header row (see Tech Design).
+- Resolved: The Kaggle file has 20 accounts and behaves like noise; the sample is account 15 (decided by the user).
+- Resolved: Shandrika's real export is not coming; DEV posts are the real-data demo.
+- Open: DEV label rule (most posts get 0 reactions); decided in the M1 plan after checking the real distribution.
+- Resolved: Laptop has 16 GB RAM and an integrated GPU (CPU-only); Gemma `gemma3:4b` passed the M0 spike.
+- Assumption (Instagram profile): Engagement = (likes + comments + shares + saves) / reach, labelled by thirds of the training history. Other profiles define their own outcome and label rule.
 - Assumption: About 150+ posts give TabPFN enough history; to be confirmed by the backtest.
 
 ## Quality Standards
@@ -214,7 +223,7 @@
 | TabPFN does not beat the baseline | High | Report honestly; try fewer, clearer features; still ship |
 | TabPFN install or licence step blocks | High | Spike it first thing; fall back to a classical model only as a labelled baseline |
 | Gemma too slow or weak on the laptop | Medium | Smaller Gemma size; overnight run absorbs slowness |
-| Real export does not arrive | Medium | Build and submit on the public dataset; say so in the article |
+| DEV posts are barely predictable (most get 0 reactions) | Medium | Pick a balanced-enough label; report balanced accuracy and ROC AUC honestly; the no-signal verdict is a feature, not a failure |
 | Running out of time | High | Must-haves only; nice-to-haves after the core works |
 
 ## MVP Completion Checklist
@@ -245,7 +254,7 @@
 6. **Launch:** Publish the DEV submission
 
 ---
-*Created: 23 Oct 2026*
+*Created: 23 Oct 2026; updated 23 Oct 2026 (decision change: DEV posts, source profiles)*
 *Status: Ready for Technical Design*
 *Questions? Javeria Lodhi*
 
@@ -261,8 +270,8 @@
 - AI in product scope: yes
 - Research status: Completed (challenge, entries, winners, workflow); see research doc "HF26 Week 3 — Research & Winning Strategy"
 - Constraints: Offline after model download; data never leaves the laptop; TabPFN local mode only; new repo in challenge window; text-only drafts; no auto-posting
-- Decisions: Target Best Use of TabPFN (primary), Gemma (secondary); Gemma via Ollama for drafting; TabPFN for prediction; time-ordered backtest vs most-common-label baseline; build first on Kaggle "Instagram Analytics Dataset" (CC BY 4.0), swap in a real export if it arrives
-- Open questions: Kaggle CSV column names; one-account filter vs sample; real export timing; laptop specs
+- Decisions: Target Best Use of TabPFN (primary), Gemma (secondary); Gemma via Ollama for drafting; TabPFN for prediction; time-ordered backtest vs most-common-label baseline; one source profile per data source; demo on real DEV posts from DEV's public API; Kaggle "Instagram Analytics Dataset" (CC BY 4.0) kept as the no-signal test case; Shandrika's real export is not coming
+- Open questions: DEV label rule (decided at M1); which Gemma output format DEV drafts use (decided at M2)
 - Source files: research doc (HF26 Week 3 — Research & Winning Strategy) → docs/PRD-SlowPost-MVP.md
 ---
 
@@ -271,12 +280,12 @@
   "schemaVersion": 1,
   "documentType": "prd",
   "appName": "Slow Post",
-  "oneLiner": "Drafts next week's Instagram posts overnight on your laptop and predicts which ones will underperform, from the account's own history.",
-  "targetUsers": "One person who plans an Instagram account's posts weekly: social media managers, small business owners, creators",
+  "oneLiner": "Drafts next week's posts overnight on your laptop and predicts which ones will underperform, from the account's own history.",
+  "targetUsers": "Anyone who posts regularly and plans posts weekly: developers on DEV, social media managers, small business owners, creators",
   "phase": "Foundation",
   "mustHave": ["Load past posts", "Backtest", "Draft next week's posts", "Score and rewrite", "Calendar and export"],
   "niceToHave": ["Overnight scheduling", "Best-time-slot suggestion", "Run log with timings"],
-  "notInMvp": ["Auto-posting to Instagram", "Logging in to Instagram / Meta", "Image or video generation", "Multiple accounts", "Other platforms", "Hosted web version", "Fine-tuning"],
+  "notInMvp": ["Auto-posting", "Logging in to Instagram / Meta", "Image or video generation", "Multiple accounts", "Sources with no profile yet", "Hosted web version", "Fine-tuning"],
   "successMetrics": ["Backtest accuracy above baseline", "Real weekly plan completed and timed"]
 }
 ```
