@@ -4,7 +4,7 @@ Update this after major decisions, completed phases, or bugs that future agents 
 
 ## Current State
 
-- Current task: M2 built (DEV drafting with Gemma, `slowpost/drafts.py`, `scripts/draft_demo.py`) plus lift in the backtest. M3 plan awaiting approval.
+- Current task: M3 built (scoring, what-ifs, one rewrite, `run_overnight.py`). M4 (Streamlit UI) plan awaiting approval.
 - Current phase: M1 done. M2 (drafting) is next.
 - Next step: M2 drafting with Gemma per source profile. README credits done (Kundan Sagar Bedmutha, Kaggle link; DEV public API).
 - Blocked by: none.
@@ -46,6 +46,7 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
   - DEV backtest (revised 2026-10-23: cutoff + new test window): train 1,000 sampled (seed 0) from older posts; test 2,000 sampled from the newest 7 days (5,863 posts, 2 Oct to 9 Oct). Cutoff = training share of 'yes' = 0.141 (predict yes when P > cutoff). Train 14.1% yes, test 21.6% yes. TabPFN balanced accuracy 0.544 vs baseline 0.500 (gap +0.044, CI +0.019 to +0.070); ROC AUC 0.588 (CI 0.556-0.620). Verdict: better than baseline (weak signal). Raw accuracy 0.492 vs 0.784 (reference only; the model flags 57% of posts as yes). Cover image is the strongest single feature (no cover: 87.9% no-reaction vs cover: 76.6%).
   - DEV lift (same run): model's top 10% (200 test posts) 36.0% got reactions (95% CI 29.5-42.5%) vs 21.6% overall (CI 19.9-23.4%), lift 1.67x (1.37-1.97). Top 20% (400): 29.8% (25.0-34.5%), lift 1.38x (1.18-1.56).
   - M2 demo (5 drafts, gemma3:4b, 163 s total, 28-40 s each, all schema-valid first run): cover idea always non-empty so has_cover_image is always 1 (decision); Gemma tags were mostly invented words and drafts 4 and 5 got the same title; some content errors (TabPFN described as retrieval). Day and hour come from code (best days/hours in the history), not Gemma.
+  - M3 real run (2026-10-23, `run_overnight.py`, n=5, with facts): 621 s total = drafting 403 s (longer prompt with 200 allowed tags, 2 title regenerations), backtest fit+predict 112 s, scoring + what-ifs 31 s, rewrite 39 s, rescoring 36 s. Cutoff 0.141, Strong threshold (top 20% of test) 0.200. Test-window evidence: Strong group 29.8% got reactions (1.38x), Okay 21.1%, Weak 18.1%, overall 21.6%. Labels of the 5 drafts: Strong 2, Okay 2, Weak 1. Rewrite of the weak draft (adding a '?') rescored 14.0% -> 22.1% (Strong). Caveat: the question-mark effect is the model's belief; the signal summary found title_has_question not clear after correction (p 0.036 raw), so the reason text overstates evidence. Free RAM dropped to 1.79 GB during Gemma rewrite.
   - Instagram sample (account 15): 1,000 train; newest week too small so the newest 20% (320 posts) is the test window. Balanced accuracy 0.379 vs 0.333 (gap +0.045, CI -0.001 to +0.095); AUC 0.526 (0.479-0.573). Verdict: no better than baseline. No feature has a corrected p below 0.05 (smallest 0.12, hashtags).
   - Training is a random seeded sample from all older posts (user decision), not the 1,000 just before the test window.
 - Open: does the Kaggle data have real patterns (it may be simulated)? The signal check says little or none.
@@ -57,7 +58,7 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
 - [x] M0 Spike: TabPFN + Gemma run on this laptop; Gemma size chosen (gemma3:4b)
 - [x] M1 Profiles + data + backtest: `fetch_dev_posts.py`, source profiles, labels, features, backtest (balanced accuracy, AUC if binary), signal summary, tests; sample slice (account 15) committed (Fri 23 Oct)
 - [x] M2 Drafting: 7 schema-valid drafts from a brief (Sat 24 Oct morning)
-- [ ] M3 Scoring + rewrite: what-if reasons, single rewrite, `pipeline.py` run folder (Sat 24 Oct)
+- [x] M3 Scoring + rewrite: what-if reasons, single rewrite, `pipeline.py` run folder (Sat 24 Oct)
 - [ ] M4 UI: Streamlit upload, backtest, calendar, edit, CSV download (Sat 24 Oct afternoon)
 - [ ] M5 Evidence: eval cases, timed real run, screenshots, demo, README (Sat 24 Oct night)
 - [ ] M6 Article: DEV post published (Sun 25 Oct, deadline 11:59 PM PDT)

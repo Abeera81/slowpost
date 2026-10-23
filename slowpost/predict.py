@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -164,8 +165,36 @@ def verdict(res: dict) -> str:
             "better than guessing, so treat its predictions as noise.")
 
 
-def backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwargs) -> dict:
-    """Run the whole backtest. Imports TabPFN here so the rest of the module stays light."""
+@dataclass
+class Fitted:
+    """A TabPFN model fitted on the training sample, plus what is needed to score new rows.
+    Call `release()` to free memory before loading Gemma."""
+    clf: object
+    profile: Profile
+    train: pd.DataFrame
+    test: pd.DataFrame
+    x_test: pd.DataFrame
+    y_train: pd.Series
+    y_test: pd.Series
+    thresholds: tuple[float, ...]
+    classes: list[str]
+    priors: np.ndarray  # training label shares
+
+    def predict_proba(self, features: pd.DataFrame) -> np.ndarray:
+        """Probabilities for rows that have the profile's feature columns."""
+        _, x, _ = build_matrices(self.train, features, self.profile)
+        return self.clf.predict_proba(x)
+
+    def release(self) -> None:
+        import gc
+
+        self.clf = None
+        gc.collect()
+
+
+def fit_model(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwargs) -> Fitted:
+    """Split by time, learn label thresholds from training rows only, and fit TabPFN.
+    Imports TabPFN here so the rest of the module stays light."""
     from tabpfn import TabPFNClassifier
 
     train, test = time_split(df, profile, seed=seed, **split_kwargs)
@@ -175,25 +204,57 @@ def backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwargs) 
     if y_train.nunique() < 2:
         raise ValueError("The training posts all have the same label; nothing to learn from.")
     x_train, x_test, cat_idx = build_matrices(train, test, profile)
-
     clf = TabPFNClassifier(device="cpu", categorical_features_indices=cat_idx)
     clf.fit(x_train, y_train.values)
-    t0 = time.perf_counter()
-    proba = clf.predict_proba(x_test)
-    seconds = time.perf_counter() - t0
-
     classes = [str(c) for c in clf.classes_]
     priors = y_train.value_counts(normalize=True).reindex(classes).to_numpy()  # training only
-    res = evaluate(y_test.values, proba, classes, y_train.mode().iloc[0], priors, seed=seed)
+    return Fitted(clf, profile, train, test, x_test, y_train, y_test, thresholds, classes, priors)
+
+
+def score_groups(y_pos: np.ndarray, p_yes: np.ndarray, cutoff: float, strong: float) -> dict:
+    """Measured share with reactions in each score group of the test window."""
+    groups = {
+        "strong": p_yes >= strong,
+        "weak": p_yes < cutoff,
+    }
+    groups["okay"] = ~(groups["strong"] | groups["weak"])
+    return {k: {"n": int(m.sum()), "share_with_reactions": float(y_pos[m].mean()) if m.any() else None}
+            for k, m in groups.items()}
+
+
+def run_backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwargs
+                 ) -> tuple[dict, Fitted]:
+    """Backtest result plus the fitted model (so scoring can reuse it)."""
+    model = fit_model(df, profile, seed=seed, **split_kwargs)
+    t0 = time.perf_counter()
+    proba = model.clf.predict_proba(model.x_test)
+    seconds = time.perf_counter() - t0
+    train, test = model.train, model.test
+    res = evaluate(model.y_test.values, proba, model.classes, model.y_train.mode().iloc[0],
+                   model.priors, seed=seed)
     res.update({
         "profile": profile.name,
         "n_train": len(train),
-        "positive": classes[1] if len(classes) == 2 else None,
-        "thresholds": thresholds,
+        "positive": model.classes[1] if len(model.classes) == 2 else None,
+        "thresholds": model.thresholds,
         "train_range": (str(train[profile.time_col].min()), str(train[profile.time_col].max())),
         "test_range": (str(test[profile.time_col].min()), str(test[profile.time_col].max())),
-        "train_mix": y_train.value_counts(normalize=True).round(3).to_dict(),
+        "train_mix": model.y_train.value_counts(normalize=True).round(3).to_dict(),
         "test_window": test.attrs.get("window", ""),
         "predict_seconds": round(seconds, 1),
     })
-    return res
+    if len(model.classes) == 2:
+        p_yes = proba[:, 1]
+        k = max(1, math.ceil(LIFT_FRACTIONS["top20"] * len(p_yes)))
+        # Strong = at or above the P(yes) of the model's top-20% test posts, but never below
+        # the cutoff. Weak = below the training-share cutoff.
+        res["strong_threshold"] = float(max(np.sort(p_yes)[::-1][k - 1], res["cutoff"]))
+        res["score_groups"] = score_groups(
+            (model.y_test.values == model.classes[1]), p_yes, res["cutoff"],
+            res["strong_threshold"])
+    return res, model
+
+
+def backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwargs) -> dict:
+    """Run the whole backtest and return only the result."""
+    return run_backtest(df, profile, seed=seed, **split_kwargs)[0]

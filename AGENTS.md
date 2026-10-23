@@ -14,7 +14,7 @@ The shell is **Git Bash on Windows**. Write every command for Git Bash, not Powe
 - `python scripts/spike.py` — M0 machine check (TabPFN and Gemma run locally). Gemma size chosen: `gemma3:4b`.
 - `python scripts/fetch_dev_posts.py` — fetch DEV posts into `data/dev_posts.csv` (git-ignored).
 - `python scripts/run_backtest.py --source dev|instagram` — backtest and signal summary for one source.
-- `python scripts/run_overnight.py ...` — headless pipeline run (no UI). Planned (M3), not built yet.
+- `python scripts/run_overnight.py ...` — headless pipeline run (no UI).
 - `ollama serve` must be running (or the Ollama app open) before any drafting step.
 
 The spike, fetch and backtest commands have been run. Details are in `agent_docs/tech_stack.md`.
