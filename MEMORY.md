@@ -4,7 +4,7 @@ Update this after major decisions, completed phases, or bugs that future agents 
 
 ## Current State
 
-- Current task: M1 fixes done (cutoff, 7-day test window, README credits, agent docs for multi-source). M2 plan (DEV drafting) awaiting approval.
+- Current task: M2 built (DEV drafting with Gemma, `slowpost/drafts.py`, `scripts/draft_demo.py`) plus lift in the backtest. M3 plan awaiting approval.
 - Current phase: M1 done. M2 (drafting) is next.
 - Next step: M2 drafting with Gemma per source profile. README credits done (Kundan Sagar Bedmutha, Kaggle link; DEV public API).
 - Blocked by: none.
@@ -44,6 +44,8 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
 - M1 results (2026-10-23, `scripts/run_backtest.py`):
   - DEV fetch (`--days 60`): 44,428 unique posts, 2026-08-10 to 2026-10-09, 73 requests (webdev 37 pages, python 16, javascript 11, beginners 9). 15.6% have at least 1 reaction (label "some_reactions"). Label = reactions >= 1.
   - DEV backtest (revised 2026-10-23: cutoff + new test window): train 1,000 sampled (seed 0) from older posts; test 2,000 sampled from the newest 7 days (5,863 posts, 2 Oct to 9 Oct). Cutoff = training share of 'yes' = 0.141 (predict yes when P > cutoff). Train 14.1% yes, test 21.6% yes. TabPFN balanced accuracy 0.544 vs baseline 0.500 (gap +0.044, CI +0.019 to +0.070); ROC AUC 0.588 (CI 0.556-0.620). Verdict: better than baseline (weak signal). Raw accuracy 0.492 vs 0.784 (reference only; the model flags 57% of posts as yes). Cover image is the strongest single feature (no cover: 87.9% no-reaction vs cover: 76.6%).
+  - DEV lift (same run): model's top 10% (200 test posts) 36.0% got reactions (95% CI 29.5-42.5%) vs 21.6% overall (CI 19.9-23.4%), lift 1.67x (1.37-1.97). Top 20% (400): 29.8% (25.0-34.5%), lift 1.38x (1.18-1.56).
+  - M2 demo (5 drafts, gemma3:4b, 163 s total, 28-40 s each, all schema-valid first run): cover idea always non-empty so has_cover_image is always 1 (decision); Gemma tags were mostly invented words and drafts 4 and 5 got the same title; some content errors (TabPFN described as retrieval). Day and hour come from code (best days/hours in the history), not Gemma.
   - Instagram sample (account 15): 1,000 train; newest week too small so the newest 20% (320 posts) is the test window. Balanced accuracy 0.379 vs 0.333 (gap +0.045, CI -0.001 to +0.095); AUC 0.526 (0.479-0.573). Verdict: no better than baseline. No feature has a corrected p below 0.05 (smallest 0.12, hashtags).
   - Training is a random seeded sample from all older posts (user decision), not the 1,000 just before the test window.
 - Open: does the Kaggle data have real patterns (it may be simulated)? The signal check says little or none.
@@ -54,7 +56,7 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
 - [x] Agent setup files (AGENTS.md, CLAUDE.md, MEMORY.md, REVIEW-CHECKLIST.md, agent_docs/)
 - [x] M0 Spike: TabPFN + Gemma run on this laptop; Gemma size chosen (gemma3:4b)
 - [x] M1 Profiles + data + backtest: `fetch_dev_posts.py`, source profiles, labels, features, backtest (balanced accuracy, AUC if binary), signal summary, tests; sample slice (account 15) committed (Fri 23 Oct)
-- [ ] M2 Drafting: 7 schema-valid drafts from a brief (Sat 24 Oct morning)
+- [x] M2 Drafting: 7 schema-valid drafts from a brief (Sat 24 Oct morning)
 - [ ] M3 Scoring + rewrite: what-if reasons, single rewrite, `pipeline.py` run folder (Sat 24 Oct)
 - [ ] M4 UI: Streamlit upload, backtest, calendar, edit, CSV download (Sat 24 Oct afternoon)
 - [ ] M5 Evidence: eval cases, timed real run, screenshots, demo, README (Sat 24 Oct night)

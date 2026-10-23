@@ -70,6 +70,12 @@ def main() -> None:
           f"(95% CI {r['ba_gap_ci'][0]:+.3f} to {r['ba_gap_ci'][1]:+.3f})")
     print(f"ROC AUC: {r['auc']:.3f} (95% CI {r['auc_ci'][0]:.3f} to {r['auc_ci'][1]:.3f}; "
           f"0.5 = chance)")
+    for name, v in r.get("lift", {}).items():
+        print(f"lift, model's {name[3:]}% highest-ranked posts (n={v['n_top']}): "
+              f"{v['share']:.1%} got reactions (95% CI {v['share_ci'][0]:.1%} to "
+              f"{v['share_ci'][1]:.1%}) vs {r['overall_share']:.1%} overall in the test window "
+              f"(CI {r['overall_share_ci'][0]:.1%} to {r['overall_share_ci'][1]:.1%}); "
+              f"lift {v['lift']:.2f}x (CI {v['lift_ci'][0]:.2f} to {v['lift_ci'][1]:.2f})")
     print(f"raw accuracy (reference only): TabPFN {r['accuracy']:.3f} vs baseline "
           f"{r['baseline_accuracy']:.3f}")
     print(f"\nVERDICT: {r['verdict']}")

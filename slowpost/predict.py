@@ -68,6 +68,16 @@ def predict_labels(proba: np.ndarray, classes: list[str], priors: np.ndarray) ->
     return np.asarray(classes)[(proba / priors).argmax(axis=1)]
 
 
+LIFT_FRACTIONS = {"top10": 0.10, "top20": 0.20}
+
+
+def _top_share(y_pos: np.ndarray, score: np.ndarray, frac: float) -> float:
+    """Share of actual positives among the `frac` highest-scored posts."""
+    k = max(1, math.ceil(frac * len(score)))
+    top = np.argsort(-score, kind="stable")[:k]
+    return float(y_pos[top].mean())
+
+
 def evaluate(y_true: np.ndarray, proba: np.ndarray, classes: list[str], baseline_label: str,
              priors: np.ndarray, n_boot: int = 1000, seed: int = 0) -> dict:
     """Metrics for the model and the baseline, with bootstrap 95% intervals on the gaps."""
@@ -82,10 +92,19 @@ def evaluate(y_true: np.ndarray, proba: np.ndarray, classes: list[str], baseline
     everything = np.arange(len(y_true))
     rng = np.random.default_rng(seed)
     ba_gaps, aucs = [], []
+    binary = len(classes) == 2
+    if binary:  # lift: do the posts the model ranks highest really get reactions more often?
+        y_pos, score = y_true == classes[1], proba[:, 1]
+        boot_top = {k: [] for k in LIFT_FRACTIONS}
+        boot_overall = []
     for _ in range(n_boot):
         idx = rng.integers(0, len(y_true), len(y_true))
         ba_gaps.append(gap_ba(idx))
         aucs.append(_auc(y_true[idx], proba[idx], classes))
+        if binary:
+            boot_overall.append(float(y_pos[idx].mean()))
+            for name, frac in LIFT_FRACTIONS.items():
+                boot_top[name].append(_top_share(y_pos[idx], score[idx], frac))
     ba_lo, ba_hi = np.percentile(ba_gaps, [2.5, 97.5])
     auc_lo, auc_hi = np.nanpercentile(aucs, [2.5, 97.5])
     res = {
@@ -104,6 +123,23 @@ def evaluate(y_true: np.ndarray, proba: np.ndarray, classes: list[str], baseline
         "predicted_mix": pd.Series(pred).value_counts(normalize=True).round(3).to_dict(),
         "test_mix": pd.Series(y_true).value_counts(normalize=True).round(3).to_dict(),
     }
+    if binary:
+        overall = float(y_pos.mean())
+        o_lo, o_hi = np.percentile(boot_overall, [2.5, 97.5])
+        res["overall_share"] = overall
+        res["overall_share_ci"] = (float(o_lo), float(o_hi))
+        res["lift"] = {}
+        for name, frac in LIFT_FRACTIONS.items():
+            share = _top_share(y_pos, score, frac)
+            lo, hi = np.percentile(boot_top[name], [2.5, 97.5])
+            ratio = np.array(boot_top[name]) / np.array(boot_overall)
+            r_lo, r_hi = np.percentile(ratio, [2.5, 97.5])
+            res["lift"][name] = {
+                "top_fraction": frac, "n_top": max(1, math.ceil(frac * len(y_true))),
+                "share": share, "share_ci": (float(lo), float(hi)),
+                "lift": share / overall if overall else float("nan"),
+                "lift_ci": (float(r_lo), float(r_hi)),
+            }
     res["verdict"] = verdict(res)
     return res
 

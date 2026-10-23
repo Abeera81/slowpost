@@ -26,6 +26,7 @@ Last verified: 2026-10-23. The M0 spike, the DEV fetch and both backtests have r
 - Fetch DEV posts: `python scripts/fetch_dev_posts.py [--days 60]`
 - Backtest: `python scripts/run_backtest.py --source dev` or `--source instagram`
 - Dev: `streamlit run app.py`
+- Draft demo: `python scripts/draft_demo.py --brief "..." [--n 5]`
 - Headless run (planned): `python scripts/run_overnight.py --source dev --brief "..."`
 - Test: `pytest` (skip slow tests: `pytest -m "not slow"`)
 - Typecheck: Not applicable (type hints are used, but no type checker was chosen)
@@ -49,7 +50,7 @@ The PowerShell `Set-ExecutionPolicy` step in the Tech Design is not needed in Gi
 
 ## Important Patterns
 
-- Modules in `slowpost/`: `profiles.py` (one profile per source), `data.py`, `labels.py`, `features.py`, `predict.py`, `signals.py`, `devfetch.py`; planned `drafts.py`, `pipeline.py`. `app.py` is UI only.
+- Modules in `slowpost/`: `profiles.py` (one profile per source), `data.py`, `labels.py`, `features.py`, `predict.py`, `signals.py`, `devfetch.py`, `drafts.py` (DEV drafting); planned `pipeline.py`. `app.py` is UI only.
 - A profile holds the column map, outcome, label rule, features and draft fields. A Meta export becomes a new profile.
 - DEV label: reactions >= 1. Instagram label: thirds of computed engagement, thresholds from training rows only.
 - Backtest: test = seeded random sample (up to 2,000) of the newest 7 days (newest 20% if the week has under 100 posts); train = seeded random sample (up to 1,000) of all older posts. Predict "yes" when P(yes) is above the training share of "yes". Report balanced accuracy, ROC AUC and a plain verdict.
