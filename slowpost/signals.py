@@ -61,3 +61,34 @@ def describe(summary: dict) -> str:
 
 def best_p(summary: dict) -> float:
     return float(np.nanmin([v["p_adj"] for v in summary["features"].values()]))
+
+
+# What-if feature name -> the signal-summary group that tests it.
+SIGNAL_FOR_FEATURE = {
+    "has_cover_image": "has cover image",
+    "hour": "hour (4h blocks, UTC)",
+    "weekday": "weekday",
+    "main_tag": "main tag",
+    "reading_time_minutes": "reading time",
+    "title_has_question": "title has question",
+    "title_has_number": "title has number",
+}
+
+
+def supported_features(summary: dict) -> set[str]:
+    """What-if features whose signal-summary group shows a clear difference after correction."""
+    clear = {n for n, v in summary["features"].items() if v["clear"]}
+    return {f for f, group in SIGNAL_FOR_FEATURE.items() if group in clear}
+
+
+def to_jsonable(summary: dict) -> dict:
+    """Plain dicts and lists, for saving next to the backtest."""
+    return {
+        "top_label": summary["top_label"], "overall_share": summary["overall_share"],
+        "text": describe(summary),
+        "features": {
+            name: {"p": v["p"], "p_adj": v["p_adj"], "clear": v["clear"],
+                   "groups": [{"group": str(g), "n": int(r["n"]), "top_share": float(r["top_share"]),
+                               "gap": float(r["gap"])} for g, r in v["table"].iterrows()]}
+            for name, v in summary["features"].items()},
+    }

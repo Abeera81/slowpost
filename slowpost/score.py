@@ -95,8 +95,10 @@ def whatif_variants(feats: dict, facts: dict | None) -> list[dict]:
 
 
 def score_drafts(model: Fitted, drafts: list[DevDraft], facts: dict | None,
-                 cutoff: float, strong: float) -> list[dict]:
-    """Score every draft and its what-if variants in one batch."""
+                 cutoff: float, strong: float, supported: set[str]) -> list[dict]:
+    """Score every draft and its what-if variants in one batch.
+    `supported` = what-if features with a clear difference in the signal summary. Only those
+    can be the "reason" (and the rewrite hint); the rest are the model's guess."""
     rows: list[dict] = []
     spans: list[tuple[int, list[dict]]] = []
     for d in drafts:
@@ -111,14 +113,17 @@ def score_drafts(model: Fitted, drafts: list[DevDraft], facts: dict | None,
         p0 = float(probs[start])
         what_if = sorted(
             ({"text": v["text"], "feature": v["feature"], "p": float(probs[start + 1 + i]),
-              "delta": float(probs[start + 1 + i]) - p0} for i, v in enumerate(variants)),
+              "delta": float(probs[start + 1 + i]) - p0,
+              "supported": v["feature"] in supported} for i, v in enumerate(variants)),
             key=lambda w: w["delta"], reverse=True)
-        best = what_if[0] if what_if and what_if[0]["delta"] >= MIN_EFFECT else None
+        best = next((w for w in what_if if w["supported"] and w["delta"] >= MIN_EFFECT), None)
+        guess = next((w for w in what_if if not w["supported"] and w["delta"] >= MIN_EFFECT), None)
         out.append({
             "p": p0, "label": label_for(p0, cutoff, strong), "what_if": what_if, "best": best,
-            "reason": (f"The biggest gain would come from {best['text']}: chance of any "
-                       f"reactions {p0:.0%} -> {best['p']:.0%}." if best else
-                       "No single change clearly helps (all differences are under 1 point)."),
+            "guess": guess,
+            "reason": (f"Backed by the data: {best['text']} would raise the chance of any "
+                       f"reactions from {p0:.0%} to {best['p']:.0%}." if best else
+                       "No change backed by the data clearly helps this draft."),
         })
     return out
 
@@ -149,9 +154,10 @@ _INSTRUCTION = {
 
 
 def text_change(scored: dict) -> dict | None:
-    """The best what-if that a rewrite can do (a title feature), if it clearly helps."""
+    """The biggest what-if a rewrite can do (a title feature) that is backed by the data and
+    clearly helps. A change that is only the model's guess is never used."""
     for w in scored["what_if"]:
-        if w["feature"] in TEXT_CHANGES and w["delta"] >= MIN_EFFECT:
+        if w["feature"] in TEXT_CHANGES and w["supported"] and w["delta"] >= MIN_EFFECT:
             return w
     return None
 

@@ -4,7 +4,7 @@ Update this after major decisions, completed phases, or bugs that future agents 
 
 ## Current State
 
-- Current task: M3 built (scoring, what-ifs, one rewrite, `run_overnight.py`). M4 (Streamlit UI) plan awaiting approval.
+- Current task: M4 built (Streamlit `app.py`) and browser-checked in Chrome. M5 (evidence, README, demo) and M6 (article) are next.
 - Current phase: M1 done. M2 (drafting) is next.
 - Next step: M2 drafting with Gemma per source profile. README credits done (Kundan Sagar Bedmutha, Kaggle link; DEV public API).
 - Blocked by: none.
@@ -47,6 +47,7 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
   - DEV lift (same run): model's top 10% (200 test posts) 36.0% got reactions (95% CI 29.5-42.5%) vs 21.6% overall (CI 19.9-23.4%), lift 1.67x (1.37-1.97). Top 20% (400): 29.8% (25.0-34.5%), lift 1.38x (1.18-1.56).
   - M2 demo (5 drafts, gemma3:4b, 163 s total, 28-40 s each, all schema-valid first run): cover idea always non-empty so has_cover_image is always 1 (decision); Gemma tags were mostly invented words and drafts 4 and 5 got the same title; some content errors (TabPFN described as retrieval). Day and hour come from code (best days/hours in the history), not Gemma.
   - M3 real run (2026-10-23, `run_overnight.py`, n=5, with facts): 621 s total = drafting 403 s (longer prompt with 200 allowed tags, 2 title regenerations), backtest fit+predict 112 s, scoring + what-ifs 31 s, rewrite 39 s, rescoring 36 s. Cutoff 0.141, Strong threshold (top 20% of test) 0.200. Test-window evidence: Strong group 29.8% got reactions (1.38x), Okay 21.1%, Weak 18.1%, overall 21.6%. Labels of the 5 drafts: Strong 2, Okay 2, Weak 1. Rewrite of the weak draft (adding a '?') rescored 14.0% -> 22.1% (Strong). Caveat: the question-mark effect is the model's belief; the signal summary found title_has_question not clear after correction (p 0.036 raw), so the reason text overstates evidence. Free RAM dropped to 1.79 GB during Gemma rewrite.
+  - M4 (2026-10-23): `app.py` has 5 pages (Data, Backtest, Brief, Plan, Instagram sample). Heavy work runs in subprocesses (fetch, backtest `--save` -> `data/backtests/*.json`, overnight run with `data/runs/_current.json` pid file), so refresh does not stop a run. What-if panel has two groups ("Backed by the data" = clear after correction; "The model's guess" greyed). Rewrite hint comes only from backed-by-data title changes (unit-tested); in the real UI run the one Weak draft was skipped with the reason shown because the title-question change was not backed. Edits are validated and features recomputed by code but NOT rescored (UI says so); plan.csv flags edited rows. Chrome check: missing CSV, Ollama down (test instance on port 8502 with SLOWPOST_DEV_CSV pointing nowhere and OLLAMA_HOST=http://127.0.0.1:1), empty brief, full run (559 s), edit, CSV download all OK. Screenshots in `docs/screenshots/` (no DEV titles or authors). Real run: labels Strong 3, Okay 1, Weak 1; supported features: has_cover_image, hour, main_tag, reading_time_minutes, title_has_number, weekday.
   - Instagram sample (account 15): 1,000 train; newest week too small so the newest 20% (320 posts) is the test window. Balanced accuracy 0.379 vs 0.333 (gap +0.045, CI -0.001 to +0.095); AUC 0.526 (0.479-0.573). Verdict: no better than baseline. No feature has a corrected p below 0.05 (smallest 0.12, hashtags).
   - Training is a random seeded sample from all older posts (user decision), not the 1,000 just before the test window.
 - Open: does the Kaggle data have real patterns (it may be simulated)? The signal check says little or none.
@@ -59,6 +60,6 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
 - [x] M1 Profiles + data + backtest: `fetch_dev_posts.py`, source profiles, labels, features, backtest (balanced accuracy, AUC if binary), signal summary, tests; sample slice (account 15) committed (Fri 23 Oct)
 - [x] M2 Drafting: 7 schema-valid drafts from a brief (Sat 24 Oct morning)
 - [x] M3 Scoring + rewrite: what-if reasons, single rewrite, `pipeline.py` run folder (Sat 24 Oct)
-- [ ] M4 UI: Streamlit upload, backtest, calendar, edit, CSV download (Sat 24 Oct afternoon)
+- [x] M4 UI: Streamlit upload, backtest, calendar, edit, CSV download (Sat 24 Oct afternoon)
 - [ ] M5 Evidence: eval cases, timed real run, screenshots, demo, README (Sat 24 Oct night)
 - [ ] M6 Article: DEV post published (Sun 25 Oct, deadline 11:59 PM PDT)

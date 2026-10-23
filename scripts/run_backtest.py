@@ -4,7 +4,7 @@ Usage:
   python scripts/run_backtest.py --source dev
   python scripts/run_backtest.py --source instagram          # sample/sample_posts.csv
   python scripts/run_backtest.py --source instagram --csv data/Instagram_Analytics.csv --account 15
-Prints to the console; nothing is written to disk.
+Prints to the console. With --save, also writes data/backtests/<source>.json (git-ignored).
 """
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ from slowpost.data import load_posts
 from slowpost.labels import apply_labels, fit_thresholds
 from slowpost.predict import backtest
 from slowpost.profiles import DEV, INSTAGRAM
-from slowpost.signals import describe, signal_summary
+from slowpost.runs import save_json
+from slowpost.signals import describe, signal_summary, supported_features, to_jsonable
 
 SOURCES = {
     "dev": (DEV, ROOT / "data" / "dev_posts.csv"),
@@ -34,6 +35,7 @@ def main() -> None:
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--csv")
     parser.add_argument("--account", type=int, help="Instagram only: keep one account_id")
+    parser.add_argument("--save", action="store_true", help="write data/backtests/<source>.json for the app")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")  # TABPFN_TOKEN lives here; never printed
 
@@ -79,6 +81,14 @@ def main() -> None:
     print(f"raw accuracy (reference only): TabPFN {r['accuracy']:.3f} vs baseline "
           f"{r['baseline_accuracy']:.3f}")
     print(f"\nVERDICT: {r['verdict']}")
+    if args.save:
+        out = save_json(ROOT / "data" / "backtests" / f"{args.source}.json", {
+            "source": args.source, "title": profile.title, "n_posts": len(df),
+            "first_post": str(df[profile.time_col].min()), "last_post": str(df[profile.time_col].max()),
+            "label_mix": labels.value_counts(normalize=True).round(3).to_dict(),
+            "result": r, "signals": to_jsonable(summary),
+            "supported_features": sorted(supported_features(summary)) if profile.name == "dev_posts" else []})
+        print(f"Saved {out}")
 
 
 if __name__ == "__main__":

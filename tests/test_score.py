@@ -92,13 +92,13 @@ def test_variants_change_one_feature_each():
 
 def test_score_drafts_reason_and_cover_effect():
     drafts = [make_draft(), make_draft(title="Why? 5 ways")]
-    out = score_drafts(FakeModel(), drafts, FACTS, cutoff=0.14, strong=0.30)
+    out = score_drafts(FakeModel(), drafts, FACTS, cutoff=0.14, strong=0.30, supported={"has_cover_image", "hour", "weekday", "main_tag", "reading_time_minutes", "title_has_question", "title_has_number"})
     a, b = out
     assert a["p"] == pytest.approx(0.20) and a["label"] == "Okay"
     assert b["p"] == pytest.approx(0.28)
     assert a["best"]["text"] == "a question in the title"  # +0.05 beats number (+0.03)
     assert a["best"]["delta"] == pytest.approx(0.05)
-    assert "20% -> 25%" in a["reason"]
+    assert "20% to 25%" in a["reason"] and a["reason"].startswith("Backed by the data")
     cover = next(w for w in a["what_if"] if w["feature"] == "has_cover_image")
     assert cover["delta"] == pytest.approx(-0.10)  # variants that hurt are shown too
     assert all(w["delta"] <= a["best"]["delta"] for w in a["what_if"])
@@ -110,8 +110,8 @@ def test_small_differences_are_no_clear_difference():
             p = np.full(len(frame), 0.1) + 0.005 * frame["title_has_number"].to_numpy()
             return np.column_stack([1 - p, p])
 
-    out = score_drafts(Flat(), [make_draft()], FACTS, 0.14, 0.3)[0]
-    assert out["best"] is None and "No single change clearly helps" in out["reason"]
+    out = score_drafts(Flat(), [make_draft()], FACTS, 0.14, 0.3, {"has_cover_image", "hour", "weekday", "main_tag", "reading_time_minutes", "title_has_question", "title_has_number"})[0]
+    assert out["best"] is None and "No change backed by the data" in out["reason"]
     assert MIN_EFFECT == 0.01
 
 
@@ -143,8 +143,8 @@ def test_rewrite_rejected_when_feature_missing():
 
 def test_text_change_only_picks_title_features():
     scored = {"what_if": [
-        {"feature": "has_cover_image", "delta": 0.2, "text": "cover"},
-        {"feature": "title_has_number", "delta": 0.03, "text": "number"}]}
+        {"feature": "has_cover_image", "delta": 0.2, "text": "cover", "supported": True},
+        {"feature": "title_has_number", "delta": 0.03, "text": "number", "supported": True}]}
     assert text_change(scored)["feature"] == "title_has_number"
     scored["what_if"][1]["delta"] = 0.001
     assert text_change(scored) is None
@@ -220,3 +220,38 @@ def test_save_json_keeps_unicode(tmp_path):
     path = save_json(tmp_path / "x" / "d.json", {"t": "naïve — “quotes” ✓"})
     assert "✓" in path.read_text(encoding="utf-8")
     assert json.loads(path.read_text(encoding="utf-8"))["t"] == "naïve — “quotes” ✓"
+
+
+# ---- rewrite hint comes from "backed by the data" only ----
+
+def test_unsupported_guess_is_grouped_separately_and_never_the_reason():
+    only_number = {"title_has_number", "has_cover_image"}  # question is NOT backed by the data
+    a = score_drafts(FakeModel(), [make_draft()], FACTS, 0.14, 0.30, only_number)[0]
+    by_feature = {w["feature"]: w for w in a["what_if"]}
+    assert by_feature["title_has_question"]["supported"] is False
+    assert by_feature["title_has_number"]["supported"] is True
+    assert a["best"]["feature"] == "title_has_number"  # smaller gain, but backed
+    assert a["guess"]["feature"] == "title_has_question"  # bigger gain, only a guess
+    assert a["guess"]["delta"] > a["best"]["delta"]
+
+
+def test_rewrite_hint_uses_supported_change_even_if_a_guess_scores_higher():
+    a = score_drafts(FakeModel(), [make_draft()], FACTS, 0.14, 0.30, {"title_has_number"})[0]
+    assert text_change(a)["feature"] == "title_has_number"
+
+
+def test_no_supported_text_change_means_no_rewrite():
+    a = score_drafts(FakeModel(), [make_draft()], FACTS, 0.14, 0.30, set())[0]
+    assert text_change(a) is None  # the question (+5 points) is only a guess here
+    only_cover = score_drafts(FakeModel(), [make_draft(title="Why? 5 ways")], FACTS, 0.14, 0.30,
+                              {"has_cover_image", "hour"})[0]
+    assert text_change(only_cover) is None  # supported changes exist but are not title changes
+
+
+def test_supported_features_come_from_clear_signal_groups():
+    from slowpost.signals import supported_features
+
+    summary = {"features": {
+        "has cover image": {"clear": True}, "title has question": {"clear": False},
+        "title has number": {"clear": True}, "weekday": {"clear": False}}}
+    assert supported_features(summary) == {"has_cover_image", "title_has_number"}

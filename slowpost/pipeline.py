@@ -5,7 +5,6 @@ fitted TabPFN model is released before the rewrite step.
 """
 from __future__ import annotations
 
-import csv
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -22,6 +21,8 @@ from .drafts import (
     history_facts,
     ollama_chat,
 )
+from .labels import apply_labels, fit_thresholds
+from .plan import plan_csv
 from .predict import fit_model, run_backtest
 from .profiles import DEV
 from .runs import save_json
@@ -33,6 +34,7 @@ from .score import (
     score_drafts,
     text_change,
 )
+from .signals import signal_summary, supported_features, to_jsonable
 from .timefmt import slot_display
 
 
@@ -59,6 +61,7 @@ def run_overnight(brief: str, project_facts: str, history_csv: Path, out_root: P
         timings[name] = round(time.perf_counter() - t0, 1)
         say(f"{name}: {timings[name]} s (free RAM {_free_gb()} GB)")
 
+    say(f"Run folder: {run_dir}")
     history = load_posts(history_csv, DEV)
     facts = history_facts(history)
     say(f"History: {len(history)} DEV posts. Free RAM {_free_gb()} GB.")
@@ -78,8 +81,14 @@ def run_overnight(brief: str, project_facts: str, history_csv: Path, out_root: P
     timed("2a backtest (TabPFN fit + predict test window)", t0)
     say(f"Backtest verdict: {res['verdict']}")
     cutoff, strong = res["cutoff"], res["strong_threshold"]
+    labels = apply_labels(history["outcome"], fit_thresholds(history["outcome"], DEV), DEV)
+    summary = signal_summary(history, labels, DEV)
+    supported = supported_features(summary)
+    save_json(run_dir / "backtest.json", {**res, "signals": to_jsonable(summary)})
+    say("Features with a clear difference in the signal summary: "
+        + (", ".join(sorted(supported)) or "none"))
     t0 = time.perf_counter()
-    scored = score_drafts(model, drafts, facts, cutoff, strong)
+    scored = score_drafts(model, drafts, facts, cutoff, strong, supported)
     timed("2b scoring drafts + what-ifs (TabPFN)", t0)
     model.release()  # free TabPFN before Gemma loads again
 
@@ -91,7 +100,8 @@ def run_overnight(brief: str, project_facts: str, history_csv: Path, out_root: P
             continue
         change = text_change(s)
         if change is None:
-            rewrites[i] = {"status": "skipped: no title change is expected to help"}
+            rewrites[i] = {"status": "skipped: no change backed by the data is expected "
+                                     "to improve the score"}
             continue
         new, status = rewrite_draft(d, change, chat, project_facts)
         rewrites[i] = {"status": status, "change": change["text"], "draft": new}
@@ -134,31 +144,9 @@ def run_overnight(brief: str, project_facts: str, history_csv: Path, out_root: P
     save_json(run_dir / "drafts.json", {
         "brief": brief, "project_facts": project_facts, "label_meaning": evidence,
         "cutoff": cutoff, "strong_threshold": strong, "timings_s": timings,
+        "supported_features": sorted(supported),
         "failed_slots": [r["error"] for r in results if not r["draft"]], "drafts": items})
-    _write_plan(run_dir / "plan.csv", items)
+    (run_dir / "plan.csv").write_text(plan_csv(items), encoding="utf-8")
     say(f"Total {timings['total']} s. Saved to {run_dir}")
     (run_dir / "log.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return run_dir
-
-
-def _write_plan(path: Path, items: list[dict]) -> None:
-    cols = ["when_utc", "when_local", "title", "tags", "tag_notes", "cover_idea", "outline",
-            "reading_time_minutes", "p_yes", "label", "best_change", "rewrite_title",
-            "rewrite_p_yes", "rewrite_label", "rewrite_note"]
-    with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=cols)
-        w.writeheader()
-        for it in items:
-            d, rw = it["draft"], it.get("rewrite") or {}
-            rd = rw.get("draft") or {}
-            w.writerow({
-                "when_utc": it["when"]["utc"], "when_local": it["when"]["local"],
-                "title": d["title"], "tags": ",".join(d["tags"]),
-                "tag_notes": "; ".join(d["notes"]), "cover_idea": d["cover_idea"],
-                "outline": " | ".join(d["outline"]),
-                "reading_time_minutes": d["reading_time_minutes"],
-                "p_yes": f"{it['p_yes']:.3f}", "label": it["label"], "best_change": it["reason"],
-                "rewrite_title": rd.get("title", ""),
-                "rewrite_p_yes": f"{rw['p_after']:.3f}" if "p_after" in rw else "",
-                "rewrite_label": rw.get("label_after", ""), "rewrite_note": rw.get("status", ""),
-            })
