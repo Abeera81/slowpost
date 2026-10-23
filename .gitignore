@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Slow Post: local data, virtualenv and secrets (never commit)
+data/
+.venv/
+.env
