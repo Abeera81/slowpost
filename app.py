@@ -105,7 +105,9 @@ def render_backtest(data: dict) -> None:
         st.success(r["verdict"])
     c1, c2, c3 = st.columns(3)
     c1.metric("Balanced accuracy", f"{r['balanced_accuracy']:.3f}",
-              f"{r['ba_gap']:+.3f} vs baseline {r['baseline_balanced_accuracy']:.3f}")
+              f"{r['ba_gap']:+.3f} vs baseline {r['baseline_balanced_accuracy']:.3f}",
+              delta_color="normal" if r["ba_gap_ci"][0] > 0 else "off",
+              delta_arrow="up" if r["ba_gap_ci"][0] > 0 else "off")
     c2.metric("ROC AUC", f"{r['auc']:.3f}", "0.5 = chance", delta_color="off",
               delta_arrow="off")
     c3.metric("Test posts", f"{r['n_test']:,}", f"{r['n_train']:,} trained on", delta_color="off",

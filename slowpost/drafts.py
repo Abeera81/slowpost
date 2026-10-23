@@ -191,7 +191,8 @@ def titles_similar(a: str, b: str) -> bool:
 
 
 def build_prompt(brief: str, angle: str, facts: dict | None, error: str | None = None,
-                 project_facts: str = "", avoid_titles: tuple[str, ...] = ()) -> str:
+                 project_facts: str = "", avoid_titles: tuple[str, ...] = (),
+                 different_angle: str = "") -> str:
     brief = " ".join(brief.split())[:MAX_BRIEF_CHARS]
     lines = [
         "You write ideas for a DEV (dev.to) post. Output JSON that follows the given schema.",
@@ -224,6 +225,9 @@ def build_prompt(brief: str, angle: str, facts: dict | None, error: str | None =
     if avoid_titles:
         lines.append("The title must be clearly different from these existing titles: "
                      + " | ".join(avoid_titles))
+    if different_angle:
+        lines.append("Use a clearly different angle from the other drafts: take this one: "
+                     f"{different_angle}. Do not reuse their wording.")
     if error:
         lines.append(f"Your previous answer was invalid ({error}). Fix it.")
     return "\n".join(lines)
@@ -235,12 +239,14 @@ def _short(e: ValidationError) -> str:
 
 def draft_one(brief: str, angle: str, slot: tuple[str, int], facts: dict | None,
               chat: Chat = ollama_chat, project_facts: str = "",
-              avoid_titles: tuple[str, ...] = ()) -> tuple[DevDraft | None, str | None]:
+              avoid_titles: tuple[str, ...] = (), different_angle: str = ""
+              ) -> tuple[DevDraft | None, str | None]:
     """One draft, validated, retried once. Returns (draft, None) or (None, reason)."""
     schema = DraftText.model_json_schema()
     error = None
     for _attempt in (1, 2):
-        raw = chat(build_prompt(brief, angle, facts, error, project_facts, avoid_titles), schema)
+        raw = chat(build_prompt(brief, angle, facts, error, project_facts, avoid_titles,
+                                different_angle), schema)
         try:
             text = DraftText.model_validate_json(raw)
         except ValidationError as e:
@@ -269,12 +275,22 @@ def generate_drafts(brief: str, n: int = DEFAULT_N, history: pd.DataFrame | None
         draft, err = draft_one(brief, angle, slots[i], facts, chat, project_facts)
         earlier = tuple(r["draft"].title for r in out if r["draft"])
         if draft and any(titles_similar(draft.title, t) for t in earlier):
-            again, _err2 = draft_one(brief, angle, slots[i], facts, chat, project_facts, earlier)
-            if again and not any(titles_similar(again.title, t) for t in earlier):
-                again.notes.append("title regenerated once: first one was a near-duplicate")
-                draft = again
-            else:
-                draft.notes.append("near-duplicate title; one regeneration did not fix it")
+            # Up to two regenerations: first avoiding the existing titles, then with a clearly
+            # different angle. If the title is still a near-duplicate, keep it and flag it.
+            fixed = False
+            for attempt in (1, 2):
+                other = ANGLES[(i + 3) % len(ANGLES)] if attempt == 2 else ""
+                again, _err2 = draft_one(brief, angle, slots[i], facts, chat, project_facts,
+                                         earlier, other)
+                if again and not any(titles_similar(again.title, t) for t in earlier):
+                    again.notes.append("title regenerated "
+                                       + ("once" if attempt == 1 else "twice (second time with "
+                                          "a clearly different angle)")
+                                       + ": the first one was a near-duplicate")
+                    draft, fixed = again, True
+                    break
+            if not fixed:
+                draft.notes.append("near-duplicate title; two regenerations did not fix it")
         out.append({
             "slot": slots[i], "angle": angle, "draft": draft, "error": err,
             "features": draft_features(draft) if draft else None,

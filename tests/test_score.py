@@ -255,3 +255,33 @@ def test_supported_features_come_from_clear_signal_groups():
         "has cover image": {"clear": True}, "title has question": {"clear": False},
         "title has number": {"clear": True}, "weekday": {"clear": False}}}
     assert supported_features(summary) == {"has_cover_image", "title_has_number"}
+
+
+def test_second_regeneration_uses_a_clearly_different_angle():
+    titles = iter(["Same headline for both", "Same headline for both",
+                   "Same headline for both", "Something else entirely"])
+    prompts = []
+
+    def chat(prompt, schema):
+        prompts.append(prompt)
+        return DraftText(title=next(titles), tags=["python"], cover_idea="cov",
+                         outline=["a", "b", "c"], reading_time_minutes=5).model_dump_json()
+
+    out = generate_drafts("brief", 2, chat=chat)
+    second = out[1]["draft"]
+    assert second.title == "Something else entirely" and len(prompts) == 4
+    assert "clearly different angle" in prompts[-1] and "clearly different angle" not in prompts[-2]
+    assert any("twice" in n for n in second.notes)
+
+
+def test_persistent_duplicate_is_flagged_after_two_regenerations():
+    prompts = []
+
+    def chat(prompt, schema):
+        prompts.append(prompt)
+        return DraftText(title="Same headline", tags=["python"], cover_idea="cov",
+                         outline=["a", "b", "c"], reading_time_minutes=5).model_dump_json()
+
+    out = generate_drafts("brief", 2, chat=chat)
+    assert len(prompts) == 4  # draft 1: 1 call; draft 2: 1 + 2 regenerations
+    assert any("two regenerations did not fix it" in n for n in out[1]["draft"].notes)
