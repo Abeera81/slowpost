@@ -37,7 +37,8 @@ Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app
   - TabPFN 1,000 train / 300 test (the real backtest size): fit 0.5 s, predict 60.3 s, about 5 GB RAM free throughout. Accuracy 0.383 vs baseline 0.38 ('below').
   - Accuracies come from the oldest 1,300 posts of one account, not the real backtest. A 0.3-point gap is within noise. The features may carry little signal; M1 must report this honestly.
   - Predict at 1,000 rows takes about 1 min on CPU, so what-if scoring in M3 must be batched.
-- Open: does the Kaggle data have real patterns (it may be simulated)? The backtest will show.
+- Signal check (2026-10-23, `scripts/signal_check.py`): pooled over all 20 accounts, no feature moves engagement (every group's mean is within 0.5-3% of the overall mean; every Kruskal-Wallis p is above 0.12; label mix is about 33/33/33 in every group). Account 15 alone has p < 0.05 for media_type (0.033), has_call_to_action (0.009) and hashtags_count (0.004), but the effects are small, hashtags is not monotonic, and it is one of 20 accounts x 6 features, so chance is a likely explanation. Pooled time-ordered backtest (1,000 train, 1,500 test): TabPFN 0.341 vs baseline 0.317 (+0.023, about 1.9 standard errors); TabPFN predicted 'around' only 0.3% of the time, and the baseline's label is an arbitrary tie-break. The data looks close to random noise (possibly simulated). Plan M1 to report this honestly; do not overstate.
+- Open: does the Kaggle data have real patterns (it may be simulated)? The signal check says little or none.
 - Open: will the real export from Shandrika arrive, and in which column format?
 
 ## Completed
