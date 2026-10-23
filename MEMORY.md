@@ -25,7 +25,9 @@ Update this after major decisions, completed phases, or bugs that future agents 
 Checked 2026-10-23 by reading `data/Instagram_Analytics.csv` (setup only, no app code):
 
 - 29,999 rows, 20 accounts, posts from 2024-11-19 to 2025-11-19. Header matches the Tech Design data contract. No rows with empty or zero `reach`.
-- Largest accounts: `account_id` 15 and 13 tie at 1,599 posts; 17 has 1,572. **Open decision:** choose the sample account (tie-break rule, e.g. lowest id or most recent posts). Every account has well over 150 posts.
+- Largest accounts: `account_id` 15 and 13 tie at 1,599 posts; 17 has 1,572. Every account has well over 150 posts.
+- 2026-10-23 Decision (user): the sample uses `account_id` 15.
+- Ollama 0.40.8 is installed; `gemma3:4b` is already pulled. `gemma4:e2b` is not pulled.
 - `media_type`: carousel, image, reel (the PRD says "photo"; use "image").
 - `content_category`: Beauty, Comedy, Fashion, Fitness, Food, Lifestyle, Music, Photography, Technology, Travel.
 - Python 3.14.4 is on PATH. Package installs not yet tried.
