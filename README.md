@@ -45,7 +45,7 @@ Nothing is ever posted for you.
 
 ## Setup (Git Bash on Windows)
 
-Developed and tested on Python 3.14 with [Ollama](https://ollama.com) and roughly 6 GB of free RAM. It runs on CPU. A run takes about 10 minutes for 5 drafts. Gemma and TabPFN never run at the same time.
+Tested on Python 3.14.4 on Windows (Git Bash), with [Ollama](https://ollama.com) and roughly 6 GB of free RAM. It runs on CPU. A run takes about 10 minutes for 5 drafts. Gemma and TabPFN never run at the same time.
 
 ```bash
 git clone git@github.com:Abeera81/slowpost.git
@@ -57,7 +57,7 @@ pip install -r requirements.txt
 ollama pull gemma3:4b          # one time; keep Ollama running (ollama serve, or the app)
 ```
 
-TabPFN weights are downloaded the first time it runs, after you accept the licence at Prior Labs. If it asks for a token, put it in a `.env` file in the project folder as `TABPFN_TOKEN=...`. `.env` is git-ignored and never printed.
+TabPFN-3.5 weights are free for non-commercial use. On first run, the `tabpfn` package opens a Prior Labs login page where you accept the licence; your data is never sent to Prior Labs. For non-interactive use, set `TABPFN_TOKEN` to your Prior Labs API key (we load it from a git-ignored `.env`). See <https://docs.priorlabs.ai/models/accessing-model-weights>.
 
 ### Run
 
@@ -94,7 +94,7 @@ ruff check .
 - **Instagram Analytics Dataset** by Kundan Sagar Bedmutha, <https://www.kaggle.com/datasets/kundanbedmutha/instagram-analytics-dataset>, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). `sample/sample_posts.csv` is one account (`account_id` 15, 1,599 posts) with rows unchanged.
 - **DEV posts** come from [DEV's public API](https://developers.forem.com/api) (`https://dev.to/api/articles`), fetched at run time and not redistributed.
 - **TabPFN** by Prior Labs, and **Gemma** by Google, run through **Ollama**.
-- Built with Claude Code, following the vibe-coding-prompt-template workflow (product requirements, tech design, agent instructions and milestones).
+- Built with Claude Code, following the [vibe-coding-prompt-template](https://github.com/KhazP/vibe-coding-prompt-template) workflow (product requirements, tech design, agent instructions and milestones).
 
 ## Changes after the deadline
 
