@@ -60,7 +60,7 @@ def test_app_pages_render_without_errors():
     at = AppTest.from_file(APP, default_timeout=30).run()
     assert not at.exception
     for page in ("1 Data", "3 Brief", "4 Plan", "Instagram sample (no signal)"):
-        at.sidebar.radio[0].set_value(page)
+        at.session_state["nav"] = page
         at.run()
         assert not at.exception, page
 
@@ -69,8 +69,54 @@ def test_empty_brief_is_refused():
     from streamlit.testing.v1 import AppTest
 
     at = AppTest.from_file(APP, default_timeout=30).run()
-    at.sidebar.radio[0].set_value("3 Brief")
+    at.session_state["nav"] = "3 Brief"
     at.run()
-    at.button[0].click()
+    at.main.button[0].click()
     at.run()
     assert any("write a brief" in e.value for e in at.error)
+
+
+def test_palette_text_contrast_is_aa_and_config_matches():
+    import tomllib
+
+    from slowpost.ui import PALETTE, contrast
+
+    p = PALETTE
+    for kind in ("strong", "okay", "weak"):
+        assert contrast(p[f"{kind}_fg"], p[f"{kind}_bg"]) >= 4.5, kind
+    assert contrast(p["muted"], p["bg"]) >= 4.5 and contrast(p["muted"], p["panel"]) >= 4.5
+    assert contrast(p["text"], p["bg"]) >= 4.5 and contrast("#ffffff", p["primary"]) >= 4.5
+    theme = tomllib.loads((Path(APP).parent / ".streamlit" / "config.toml").read_text())["theme"]
+    assert (theme["primaryColor"], theme["backgroundColor"], theme["textColor"],
+            theme["secondaryBackgroundColor"]) == (p["primary"], p["bg"], p["text"], p["panel"])
+
+
+def test_css_builds_with_palette_variables():
+    from slowpost.ui import PALETTE, css
+
+    out = css()
+    assert "--primary: " + PALETTE["primary"] in out and "/*VARS*/" not in out
+
+
+def test_badge_has_word_and_glyph():
+    from slowpost.ui import badge
+
+    for label in ("Strong", "Okay", "Weak"):
+        assert label in badge(label) and "sp-" + label.lower() in badge(label)
+
+
+def test_progress_steps_follow_the_log():
+    from slowpost.ui import parse_progress
+
+    def states(log):
+        return [s["state"] for s in parse_progress(log)]
+
+    assert states("[0s] History: 10 DEV posts.") == ["active", "wait", "wait", "wait"]
+    drafted = "[233s] 1 drafting (Gemma): 232.1 s (free RAM 2.3 GB)"
+    steps = parse_progress(drafted)
+    assert [s["state"] for s in steps] == ["done", "active", "wait", "wait"]
+    assert steps[0]["seconds"] == 232.1
+    scored = (drafted + "\n[358s] 2a backtest (TabPFN fit): 125.7 s (free)"
+              "\n[398s] 2b scoring drafts: 39.6 s (f")
+    assert states(scored) == ["done", "done", "done", "active"]
+    assert states(scored + "\nTotal 399 s. Saved to x") == ["done"] * 4

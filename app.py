@@ -3,10 +3,11 @@
 Run: streamlit run app.py
 Heavy work (fetch, backtest, overnight run) runs in separate processes so TabPFN and Gemma never
 share memory with the app, and a browser refresh does not stop a run.
-Environment (optional): SLOWPOST_DEV_CSV = path of the DEV posts CSV.
+Environment (optional): SLOWPOST_DEV_CSV = path of the DEV posts CSV; SLOWPOST_RUNS = runs folder.
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import subprocess
@@ -19,20 +20,22 @@ import pandas as pd
 import psutil
 import streamlit as st
 
+from slowpost import ui
 from slowpost.plan import apply_edits, plan_csv
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 DEV_CSV = Path(os.environ.get("SLOWPOST_DEV_CSV", DATA / "dev_posts.csv"))
-RUNS = DATA / "runs"
+RUNS = Path(os.environ.get("SLOWPOST_RUNS", DATA / "runs"))
 BACKTESTS = DATA / "backtests"
 CURRENT = RUNS / "_current.json"
 CURRENT_LOG = RUNS / "_current.log"
 MODEL = "gemma3:4b"
-PAGES = ["1 Data", "2 Backtest", "3 Brief", "4 Plan", "Instagram sample (no signal)"]
-BADGE = {"Strong": "green", "Okay": "orange", "Weak": "red"}
+NAV = [("1 Data", "Data", ":material/database:"), ("2 Backtest", "Backtest", ":material/query_stats:"),
+       ("3 Brief", "Brief", ":material/edit_note:"), ("4 Plan", "Plan", ":material/calendar_month:")]
+SECONDARY = ("Instagram sample (no signal)", "Instagram sample (no signal)", ":material/science:")
 
-st.set_page_config(page_title="Slow Post", page_icon="🦥", layout="centered")
+st.set_page_config(page_title="Slow Post", page_icon="🦥", layout="wide")
 
 
 # ---------- helpers ----------
@@ -95,8 +98,34 @@ def pct(v: float | None) -> str:
 
 # ---------- backtest view (used for DEV and Instagram) ----------
 
+def render_headline(r: dict) -> None:
+    """One big result before the details. Every number is read from the saved result."""
+    top = (r.get("lift") or {}).get("top10")
+    if top:
+        lo, hi = top["lift_ci"]
+        caution = ("" if lo > 1 else " The interval includes 1.0x, so this may be chance.")
+        st.markdown(
+            f'<div class="sp-hero"><div class="sp-hero-num">{top["lift"]:.2f}×</div>'
+            f'<div class="sp-hero-head">Top picks got reactions {top["lift"]:.2f}× more often</div>'
+            f'<div>Of the {top["n_top"]} posts the model ranked highest in the newest week, '
+            f'{top["share"]:.1%} got reactions, against {r["overall_share"]:.1%} overall.{caution}</div>'
+            f'<div class="sp-small">95% confidence interval: {lo:.2f}× to {hi:.2f}×. '
+            f'Lift is modest: use it to rank ideas, not to promise results.</div></div>',
+            unsafe_allow_html=True)
+    else:
+        head = r["verdict"].split(":")[0].strip().rstrip(".")
+        st.markdown(
+            f'<div class="sp-hero"><div class="sp-hero-num sp-none">{html.escape(head)}</div>'
+            f'<div class="sp-hero-head">The history has no usable signal</div>'
+            f'<div>Balanced accuracy {r["balanced_accuracy"]:.3f} against '
+            f'{r["baseline_balanced_accuracy"]:.3f} for always guessing the most common outcome.</div>'
+            f'<div class="sp-small">95% interval for the gap: {r["ba_gap_ci"][0]:+.3f} to '
+            f'{r["ba_gap_ci"][1]:+.3f}.</div></div>', unsafe_allow_html=True)
+
+
 def render_backtest(data: dict) -> None:
     r, sig = data["result"], data["signals"]
+    render_headline(r)
     st.caption(f"{data['title']}: {data['n_posts']:,} posts, {data['first_post'][:10]} to "
                f"{data['last_post'][:10]}. Test window: {r['test_window']}.")
     if "no better" in r["verdict"].lower() or r["verdict"].startswith("Worse"):
@@ -127,7 +156,7 @@ def render_backtest(data: dict) -> None:
                          "Overall": f"{r['overall_share']:.1%}",
                          "Lift": f"{v['lift']:.2f}x ({v['lift_ci'][0]:.2f}-{v['lift_ci'][1]:.2f})"})
         st.markdown("**Lift: do the posts the model ranks highest do better?**")
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
     st.markdown("**Signal summary: which features change the odds?**")
     st.write(sig["text"])
@@ -139,16 +168,21 @@ def render_backtest(data: dict) -> None:
             g = pd.DataFrame(v["groups"]).set_index("group")
             st.bar_chart(g["top_share"])
             st.dataframe(g.rename(columns={"n": "posts", "top_share": "share", "gap": "gap vs overall"}),
-                         use_container_width=True)
+                         width="stretch")
 
 
 # ---------- pages ----------
 
+def page_title(title: str, lede: str) -> None:
+    st.markdown(f'<div class="sp-page-title">{html.escape(title)}</div>'
+                f'<div class="sp-lede">{html.escape(lede)}</div>', unsafe_allow_html=True)
+
+
 def page_data() -> None:
-    st.header("1 · Your post history")
-    st.write("Slow Post learns from real DEV posts (fetched from DEV's public API). "
-             "Only post id, time, title, tags, reading time, cover flag and reaction counts are "
-             "kept, never author names. Everything stays on this computer.")
+    page_title("Your post history",
+               "Slow Post learns from real DEV posts (fetched from DEV's public API). Only post id, "
+               "time, title, tags, reading time, cover flag and reaction counts are kept, never "
+               "author names. Everything stays on this computer.")
     if not DEV_CSV.exists():
         st.error(f"No DEV posts found at `{DEV_CSV}`. Click the button to fetch them.")
     else:
@@ -168,9 +202,9 @@ def page_data() -> None:
 
 
 def page_backtest() -> None:
-    st.header("2 · Does the history predict anything?")
-    st.write("Honest check: train on older posts, test on the newest week, and compare with "
-             "always guessing the most common outcome.")
+    page_title("Does the history predict anything?",
+               "Honest check: train on older posts, test on the newest week, and compare with "
+               "always guessing the most common outcome.")
     if not DEV_CSV.exists():
         st.error("Fetch the DEV posts first (step 1).")
         return
@@ -218,15 +252,15 @@ def start_run() -> None:
 
 
 def page_brief() -> None:
-    st.header("3 · What should next week's posts be about?")
+    page_title("What should next week's posts be about?",
+               "Write a short brief. Gemma drafts, then TabPFN scores, one after the other.")
     st.text_area("Brief", key="brief", height=90,
                  placeholder="A DEV post about building a local tool that ...")
     st.text_area("Facts (optional)", key="facts", height=110,
                  help="Reference facts about your project. Gemma treats them as data, so it "
                       "doesn't invent how things work.")
     st.slider("Number of drafts", 1, 7, 5, key="n")
-    st.caption("A run takes about 10 minutes: Gemma drafts, then TabPFN scores, one after the "
-               "other. You can leave this tab open or come back later.")
+    st.caption("A run takes about 10 minutes. You can leave this tab open or come back later.")
     problem = ollama_problem()
     if problem:
         st.error(problem)
@@ -235,33 +269,86 @@ def page_brief() -> None:
         st.error(st.session_state.start_msg)
 
 
+def rewrite_block(item: dict) -> None:
+    """Rewritten drafts: before and after side by side with the score change. Skips: one line."""
+    rw = item.get("rewrite")
+    if not rw:
+        return
+    if not rw.get("draft"):
+        st.markdown(f'<div class="sp-rw"><b>Rewrite skipped.</b> '
+                    f'{html.escape(rw["status"].removeprefix("skipped: ").capitalize())}</div>',
+                    unsafe_allow_html=True)
+        return
+    st.markdown(f'<div class="sp-rw"><b>Rewritten once:</b> {rw["p_before"]:.0%} → '
+                f'{rw["p_after"]:.0%} chance of reactions ({html.escape(rw["label_after"])}). '
+                f'Compared below the week.</div>', unsafe_allow_html=True)
+
+
+def rewrite_compare(items: list[dict]) -> None:
+    """Full-width before/after for rewritten drafts, side by side with the score change."""
+    done = [it for it in items if (it.get("rewrite") or {}).get("draft")]
+    if not done:
+        return
+    st.markdown('<div class="sp-page-title">Rewrites: before → after</div>', unsafe_allow_html=True)
+    for it in done:
+        rw = it["rewrite"]
+        with st.container(border=True):
+            st.markdown(f'**{it["when"]["utc"]}** · {rw["p_before"]:.0%} → {rw["p_after"]:.0%} '
+                        f'chance of reactions')
+            a, b = st.columns(2)
+            for col, head, p, dr, label in ((a, "Before", rw["p_before"], it["draft"], it["label"]),
+                                            (b, "After", rw["p_after"], rw["draft"], rw["label_after"])):
+                col.markdown(f'{head} · {p:.0%} {ui.badge(label)}', unsafe_allow_html=True)
+                col.markdown(f'<div class="sp-title">{html.escape(dr["title"])}</div>',
+                             unsafe_allow_html=True)
+                col.caption(f"Tags: {', '.join(dr['tags'])}  \nCover: {dr['cover_idea']}")
+            st.caption("Aimed at: " + rw["change"] + ". "
+                       + ("The score went up." if rw["improved"] else
+                          "The score did not clearly improve."))
+
+
 def show_card(run: Path, i: int, item: dict) -> dict:
-    """One draft card with editable fields. Returns the (possibly edited) item."""
+    """One compact week card with details in expanders. Returns the (possibly edited) item."""
     key = f"{run.name}-{i}"
     d = item["draft"]
+    ss = st.session_state
+    # Widget values are in session state before the widgets are drawn, so the card top can show
+    # the edited title even though the edit fields sit lower down.
+    edits = {"title": ss.get(f"t-{key}", d["title"]),
+             "tags": ss.get(f"g-{key}", ",".join(d["tags"])),
+             "cover_idea": ss.get(f"c-{key}", d["cover_idea"]),
+             "outline": ss.get(f"o-{key}", "\n".join(d["outline"]))}
+    edited, err = apply_edits(item, edits)
     with st.container(border=True):
-        top, right = st.columns([3, 2])
-        top.markdown(f"**{item['when']['utc']}**  \n"
-                     f"{item['when']['local']} (your local time)")
-        right.badge(item["label"], color=BADGE[item["label"]])
-        right.caption(f"Chance of any reactions: {item['p_yes']:.0%}")
-        title = st.text_input("Title", d["title"], key=f"t-{key}")
-        tags = st.text_input("Tags (comma separated, up to 4)", ",".join(d["tags"]), key=f"g-{key}")
-        cover = st.text_input("Cover image idea", d["cover_idea"], key=f"c-{key}")
-        outline = st.text_area("Outline (one point per line)", "\n".join(d["outline"]),
-                               key=f"o-{key}", height=130)
-        st.caption(f"Target reading time: {d['reading_time_minutes']} min")
-        edited, err = apply_edits(item, {"title": title, "tags": tags, "cover_idea": cover,
-                                         "outline": outline})
-        if err:
-            st.error(f"These edits can't be used yet ({err}). The original draft is kept.")
-        elif edited.get("edited"):
-            st.info("Edited. The score above belongs to the original draft; edits are not rescored.")
-        if d["notes"]:
-            st.caption("Notes: " + "; ".join(d["notes"]))
-        with st.expander("Features computed by code"):
+        top, right = st.columns([5, 3])
+        when = item["when"]
+        top.markdown(f'<div class="sp-when">{html.escape(when["utc"])}</div>'
+                     f'<div class="sp-local">{html.escape(when["local"])} (your time)</div>',
+                     unsafe_allow_html=True)
+        right.markdown(f'<div style="text-align:right">{ui.badge(item["label"])}</div>',
+                       unsafe_allow_html=True)
+        st.markdown(f'<div class="sp-title">{html.escape(edited["draft"]["title"])}</div>'
+                    f'<div class="sp-chance"><b>{item["p_yes"]:.0%}</b> chance of any reactions</div>',
+                    unsafe_allow_html=True)
+        status = st.container()  # always present, so the expanders below keep their open state
+        with status:
+            if err:
+                st.error(f"These edits can't be used yet ({err}). The original draft is kept.")
+            elif edited.get("edited"):
+                st.info("Edited. The score is for the original draft; edits are not rescored.")
+        rewrite_block(item)
+        with st.expander("Tags, cover, outline (edit)"):
+            st.text_input("Title", d["title"], key=f"t-{key}")
+            st.text_input("Tags (comma separated, up to 4)", ",".join(d["tags"]), key=f"g-{key}")
+            st.text_input("Cover image idea", d["cover_idea"], key=f"c-{key}")
+            st.text_area("Outline (one point per line)", "\n".join(d["outline"]),
+                         key=f"o-{key}", height=130)
+            st.caption(f"Target reading time: {d['reading_time_minutes']} min")
+            if d["notes"]:
+                st.caption("Notes: " + "; ".join(d["notes"]))
+        with st.expander("Features (computed by code)"):
             st.json(edited["features"])
-        with st.expander("What-if: what would change the score?"):
+        with st.expander("What-if: what would change it?"):
             st.write(item["reason"])
             sup = [w for w in item["what_if"] if w.get("supported")]
             rest = [w for w in item["what_if"] if not w.get("supported")]
@@ -275,20 +362,15 @@ def show_card(run: Path, i: int, item: dict) -> dict:
             st.caption("The data shows no clear difference for these, so treat them as guesses.")
             for w in rest:
                 st.markdown(f":gray[{w['delta']:+.1%} points: {w['text']} ({w['p']:.0%})]")
-        rw = item.get("rewrite")
-        if rw:
-            with st.expander("Rewrite (once, for weak drafts)", expanded=True):
-                if rw.get("draft"):
-                    a, b = st.columns(2)
-                    a.markdown(f"**Before** ({rw['p_before']:.0%})  \n{d['title']}")
-                    b.markdown(f"**After** ({rw['p_after']:.0%}, {rw['label_after']})  \n"
-                               f"{rw['draft']['title']}")
-                    st.caption("Aimed at: " + rw["change"] + ". "
-                               + ("The score went up." if rw["improved"] else
-                                  "The score did not clearly improve."))
-                else:
-                    st.write(rw["status"])
     return edited
+
+
+def sloth_line(started: float) -> None:
+    mins, secs = divmod(int(time.time() - started), 60)
+    st.markdown(f'<div class="sp-elapsed">{mins}:{secs:02d} <span class="sp-small">elapsed, '
+                f'about 10 minutes in total</span></div>'
+                f'<div class="sp-lede"><span class="sp-sloth">🦥</span> Slow and steady. '
+                f'Sloths don\'t rush, and neither does this run.</div>', unsafe_allow_html=True)
 
 
 @st.fragment(run_every=4)
@@ -296,14 +378,25 @@ def live_status() -> None:
     state = run_state()
     if not state["active"]:
         st.rerun()
-    st.info(f"A run is going (started {state['started_text']}, "
-            f"{int(time.time() - state['started'])} s ago). This page updates by itself.")
     text = CURRENT_LOG.read_text(encoding="utf-8", errors="replace") if CURRENT_LOG.exists() else ""
-    st.code("\n".join(text.splitlines()[-8:]) or "Starting...")
+    sloth_line(state["started"])
+    st.markdown(ui.steps_html(ui.parse_progress(text)), unsafe_allow_html=True)
+    st.caption(f"Started {state['started_text']}. This page updates by itself.")
+    with st.expander("Details"):
+        st.code("\n".join(text.splitlines()[-12:]) or "Starting...")
+
+
+def label_legend(data: dict) -> None:
+    """Compact legend: badge plus the measured meaning, then the honesty note."""
+    rows = "".join(f"<div>{ui.badge(name)}<span>{html.escape(text)}</span></div>"
+                   for name, text in data["label_meaning"].items())
+    st.markdown(f'<div class="sp-legend">{rows}</div>', unsafe_allow_html=True)
+    st.caption("Measured on the backtest test window. Lift is modest: use the labels to rank "
+               "ideas, not to promise results.")
 
 
 def page_plan() -> None:
-    st.header("4 · The week's plan")
+    page_title("The week's plan", "Drafts by day and time, each with a label and a chance of reactions.")
     state = run_state()
     if state["active"]:
         live_status()  # refreshes itself; the full page reruns when the run ends
@@ -321,12 +414,15 @@ def page_plan() -> None:
         return
     data = load_json(run / "drafts.json")
     st.caption(f"Run {run.name}. Brief: {data['brief']}")
-    st.markdown("**What the labels mean** (measured on the backtest test window)")
-    for name, text in data["label_meaning"].items():
-        st.markdown(f":{BADGE[name]}-badge[{name}] {text}")
-    st.caption("Lift is modest: use the labels to rank ideas, not to promise results.")
+    label_legend(data)
     items = sorted(data["drafts"], key=lambda it: (it["features"]["weekday"], it["features"]["hour"]))
-    edited = [show_card(run, i, it) for i, it in enumerate(items)]
+    edited: list[dict] = []
+    for start in range(0, len(items), 3):
+        cols = st.columns(3)
+        for col, i in zip(cols, range(start, min(start + 3, len(items))), strict=False):
+            with col:
+                edited.append(show_card(run, i, items[i]))
+    rewrite_compare(items)
     if data["failed_slots"]:
         st.warning("Some slots could not be drafted: " + "; ".join(data["failed_slots"]))
     st.download_button("Download plan.csv", plan_csv(edited), file_name="plan.csv",
@@ -336,10 +432,10 @@ def page_plan() -> None:
 
 
 def page_instagram() -> None:
-    st.header("Instagram sample: a test case with no signal")
-    st.write("One account from a public Kaggle dataset (CC BY 4.0, Kundan Sagar Bedmutha). "
-             "It is here to show that Slow Post reports honestly when a history has nothing "
-             "to learn. The verdict below is computed, not scripted. Backtest only; no drafting.")
+    page_title("Instagram sample: a test case with no signal",
+               "One account from a public Kaggle dataset (CC BY 4.0, Kundan Sagar Bedmutha). It is "
+               "here to show that Slow Post reports honestly when a history has nothing to learn. "
+               "The verdict below is computed, not scripted. Backtest only; no drafting.")
     sample = ROOT / "sample" / "sample_posts.csv"
     if not sample.exists():
         st.error("sample/sample_posts.csv is missing.")
@@ -359,8 +455,29 @@ def page_instagram() -> None:
 
 # ---------- main ----------
 
-st.sidebar.title("🦥 Slow Post")
-st.sidebar.caption("Drafts next week's posts overnight and flags the weak ones. Local only.")
-page = st.sidebar.radio("Steps", PAGES, key="nav")
+def go(page: str) -> None:
+    st.session_state.nav = page
+
+
+def sidebar_nav() -> str:
+    """Brand, the four steps in order, and the Instagram sample set apart as a secondary item."""
+    st.sidebar.markdown('<div class="sp-brand">🦥 Slow Post</div>'
+                        '<div class="sp-tagline">Drafts next week\'s posts overnight and flags the '
+                        'weak ones. Local only.</div>', unsafe_allow_html=True)
+    st.session_state.setdefault("nav", "1 Data")
+    current = st.session_state.nav
+    for page_id, label, icon in NAV:
+        st.sidebar.button(label, icon=icon, key=f"nav-{page_id}", width="stretch",
+                          type="primary" if current == page_id else "secondary",
+                          on_click=go, args=(page_id,))
+    st.sidebar.markdown('<div class="sp-nav-label">Test case</div>', unsafe_allow_html=True)
+    st.sidebar.button(SECONDARY[1], icon=SECONDARY[2], key="nav-secondary", width="stretch",
+                      type="primary" if current == SECONDARY[0] else "secondary",
+                      on_click=go, args=(SECONDARY[0],))
+    return current
+
+
+st.markdown(ui.css(), unsafe_allow_html=True)
+page = sidebar_nav()
 {"1 Data": page_data, "2 Backtest": page_backtest, "3 Brief": page_brief, "4 Plan": page_plan,
- "Instagram sample (no signal)": page_instagram}[page]()
+ SECONDARY[0]: page_instagram}[page]()
