@@ -22,7 +22,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from slowpost import ui
-from slowpost.plan import apply_edits, plan_csv
+from slowpost.plan import apply_edits, plan_csv, run_verdict
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -427,6 +427,21 @@ def live_status() -> None:
         st.code("\n".join(text.splitlines()[-12:]) or "Starting...")
 
 
+def verdict_banner(verdict: dict) -> None:
+    """The run's top line. With no Strong draft it says so and still names the best candidate."""
+    best = verdict.get("best")
+    if verdict["n_strong"] == 0:
+        extra = (f'Best candidate: {html.escape(best["title"])} '
+                 f'({best["p_yes"]:.0%} chance of reactions, {html.escape(best["label"])}).'
+                 if best else "")
+        st.markdown(f'<div class="sp-verdict sp-verdict-none"><div class="sp-verdict-head">'
+                    f'{html.escape(verdict["text"])}</div><div>{extra}</div></div>',
+                    unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="sp-verdict"><div class="sp-verdict-head">'
+                    f'{html.escape(verdict["text"])}</div></div>', unsafe_allow_html=True)
+
+
 def label_legend(data: dict) -> None:
     """Compact legend: badge plus the measured meaning, then the honesty note."""
     rows = "".join(f"<div>{ui.badge(name)}<span>{html.escape(text)}</span></div>"
@@ -455,6 +470,8 @@ def page_plan() -> None:
         st.info("No plan yet. Write a brief in step 3 and start a run.")
         return
     data = load_json(run / "drafts.json")
+    verdict = data.get("verdict") or run_verdict(data["drafts"])
+    verdict_banner(verdict)
     st.caption(f"Run {run.name}. Brief: {data['brief']}")
     label_legend(data)
     items = sorted(data["drafts"], key=lambda it: (it["features"]["weekday"], it["features"]["hour"]))
@@ -467,7 +484,7 @@ def page_plan() -> None:
     rewrite_compare(items)
     if data["failed_slots"]:
         st.warning("Some slots could not be drafted: " + "; ".join(data["failed_slots"]))
-    st.download_button("Download plan.csv", plan_csv(edited), file_name="plan.csv",
+    st.download_button("Download plan.csv", plan_csv(edited, verdict["text"]), file_name="plan.csv",
                        mime="text/csv", type="primary")
     t = data["timings_s"]
     st.caption("Run time: " + ", ".join(f"{k.split(' ', 1)[-1]} {v:.0f}s" for k, v in t.items()))

@@ -22,7 +22,7 @@ from .drafts import (
     ollama_chat,
 )
 from .labels import apply_labels, fit_thresholds
-from .plan import plan_csv
+from .plan import plan_csv, run_verdict
 from .predict import fit_model, run_backtest
 from .profiles import DEV
 from .runs import save_json
@@ -142,12 +142,15 @@ def run_overnight(brief: str, project_facts: str, history_csv: Path, out_root: P
             }
         items.append(item)
     timings["total"] = round(time.perf_counter() - t_start, 1)
+    verdict = run_verdict(items)
+    say(f"Verdict: {verdict['text']}")
     save_json(run_dir / "drafts.json", {
+        "verdict": verdict,
         "brief": brief, "project_facts": project_facts, "label_meaning": evidence,
         "cutoff": cutoff, "strong_threshold": strong, "timings_s": timings,
         "supported_features": sorted(supported),
         "failed_slots": [r["error"] for r in results if not r["draft"]], "drafts": items})
-    (run_dir / "plan.csv").write_text(plan_csv(items), encoding="utf-8")
+    (run_dir / "plan.csv").write_text(plan_csv(items, verdict["text"]), encoding="utf-8")
     say(f"Total {timings['total']} s. Saved to {run_dir}")
     (run_dir / "log.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return run_dir

@@ -102,6 +102,12 @@ h1, h2, h3 { letter-spacing: -.01em; }
   font-weight: 700; margin-bottom: var(--s2); }
 .sp-flow-name { font-weight: 700; font-size: var(--t-section); }
 
+/* run verdict */
+.sp-verdict { background: var(--strong_bg); color: var(--strong_fg); border-radius: var(--radius);
+  padding: var(--s4) var(--s5); margin: 0 0 var(--s4); }
+.sp-verdict-none { background: var(--okay_bg); color: var(--okay_fg); }
+.sp-verdict-head { font-size: var(--t-section); font-weight: 700; }
+
 /* backtest headline */
 .sp-hero { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: var(--s5); margin: 0 0 var(--s4); }

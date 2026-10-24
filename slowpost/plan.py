@@ -6,7 +6,7 @@ import io
 
 from .drafts import DevDraft, DraftText, draft_features
 
-PLAN_COLUMNS = ["when_utc", "when_local", "title", "tags", "tag_notes", "cover_idea", "outline",
+PLAN_COLUMNS = ["run_verdict", "when_utc", "when_local", "title", "tags", "tag_notes", "cover_idea", "outline",
                 "reading_time_minutes", "p_yes", "label", "edited", "best_change",
                 "rewrite_title", "rewrite_p_yes", "rewrite_label", "rewrite_note"]
 
@@ -36,8 +36,22 @@ def apply_edits(item: dict, edit: dict | None) -> tuple[dict, str | None]:
     return out, None
 
 
-def plan_csv(items: list[dict]) -> str:
-    """plan.csv text for the (possibly edited) items."""
+def run_verdict(items: list[dict]) -> dict:
+    """The top-line verdict for a run, from the final TabPFN scores. If no draft is Strong the
+    plan says so and names the best candidate anyway."""
+    n = sum(1 for it in items if it["label"] == "Strong")
+    best = max(items, key=lambda it: it["p_yes"]) if items else None
+    text = ("Nothing stands out this week. Go back to sleep." if n == 0 else
+            f"{n} strong idea{'s' if n != 1 else ''} this week.")
+    return {"text": text, "n_strong": n,
+            "best": None if best is None else {
+                "title": best["draft"]["title"], "p_yes": best["p_yes"],
+                "label": best["label"], "when_utc": best["when"]["utc"]}}
+
+
+def plan_csv(items: list[dict], verdict: str | None = None) -> str:
+    """plan.csv text for the (possibly edited) items. Every row repeats the run verdict."""
+    verdict = verdict or (run_verdict(items)["text"] if items else "")
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=PLAN_COLUMNS, lineterminator="\n")
     w.writeheader()
@@ -45,7 +59,7 @@ def plan_csv(items: list[dict]) -> str:
         d, rw = it["draft"], it.get("rewrite") or {}
         rd = rw.get("draft") or {}
         w.writerow({
-            "when_utc": it["when"]["utc"], "when_local": it["when"]["local"],
+            "run_verdict": verdict, "when_utc": it["when"]["utc"], "when_local": it["when"]["local"],
             "title": d["title"], "tags": ",".join(d["tags"]), "tag_notes": "; ".join(d["notes"]),
             "cover_idea": d["cover_idea"], "outline": " | ".join(d["outline"]),
             "reading_time_minutes": d["reading_time_minutes"], "p_yes": f"{it['p_yes']:.3f}",

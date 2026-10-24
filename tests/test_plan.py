@@ -127,3 +127,31 @@ def test_progress_shows_drafting_count_while_drafting():
 
     steps = parse_progress("[40s] Drafted 1/5\n[90s] Drafted 2/5")
     assert steps[0]["state"] == "active" and steps[0]["name"] == "Drafting with Gemma 2/5"
+
+
+def _scored(label: str, p: float) -> dict:
+    return {**item(), "label": label, "p_yes": p}
+
+
+def test_verdict_with_no_strong_names_the_best_candidate():
+    from slowpost.plan import run_verdict
+
+    v = run_verdict([_scored("Okay", 0.15), _scored("Weak", 0.10)])
+    assert v["text"] == "Nothing stands out this week. Go back to sleep." and v["n_strong"] == 0
+    assert v["best"]["p_yes"] == 0.15
+
+
+def test_verdict_counts_strong_ideas():
+    from slowpost.plan import run_verdict
+
+    assert run_verdict([_scored("Strong", 0.3)])["text"] == "1 strong idea this week."
+    assert run_verdict([_scored("Strong", 0.3), _scored("Strong", 0.25)])["text"] == \
+        "2 strong ideas this week."
+
+
+def test_csv_carries_the_verdict():
+    from slowpost.plan import run_verdict
+
+    items = [_scored("Weak", 0.1)]
+    rows = list(csv.DictReader(io.StringIO(plan_csv(items, run_verdict(items)["text"]))))
+    assert rows[0]["run_verdict"] == "Nothing stands out this week. Go back to sleep."
