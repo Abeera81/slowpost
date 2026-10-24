@@ -155,10 +155,10 @@ def render_backtest(data: dict) -> None:
                          "Got reactions": f"{v['share']:.1%} ({v['share_ci'][0]:.1%}-{v['share_ci'][1]:.1%})",
                          "Overall": f"{r['overall_share']:.1%}",
                          "Lift": f"{v['lift']:.2f}x ({v['lift_ci'][0]:.2f}-{v['lift_ci'][1]:.2f})"})
-        st.markdown("**Lift: do the posts the model ranks highest do better?**")
+        st.markdown(ui.section("Lift: do the posts the model ranks highest do better?"), unsafe_allow_html=True)
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
-    st.markdown("**Signal summary: which features change the odds?**")
+    st.markdown(ui.section("Signal summary: which features change the odds?"), unsafe_allow_html=True)
     st.write(sig["text"])
     st.caption(f"Share of '{sig['top_label']}' posts by group (overall {sig['overall_share']:.1%}). "
                "p-values are corrected for testing several features at once.")
@@ -174,8 +174,7 @@ def render_backtest(data: dict) -> None:
 # ---------- pages ----------
 
 def page_title(title: str, lede: str) -> None:
-    st.markdown(f'<div class="sp-page-title">{html.escape(title)}</div>'
-                f'<div class="sp-lede">{html.escape(lede)}</div>', unsafe_allow_html=True)
+    st.markdown(ui.page_title(title, lede), unsafe_allow_html=True)
 
 
 STEPS = [("Data", "Fetch real DEV posts"), ("Backtest", "Check if history predicts anything"),
@@ -186,12 +185,12 @@ def page_home() -> None:
     st.markdown('<div class="sp-page-title">🦥 Slow Post</div>'
                 '<div class="sp-lede">Drafts your next posts while you rest, and tells you which '
                 'ones are worth writing.</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sp-section">How it works</div>', unsafe_allow_html=True)
+    st.markdown(ui.section("How it works"), unsafe_allow_html=True)
     cells = "".join(f'<div class="sp-flow-step"><span class="sp-num">{i}</span>'
                     f'<div class="sp-flow-name">{name}</div><div class="sp-small">{text}</div></div>'
                     for i, (name, text) in enumerate(STEPS, 1))
     st.markdown(f'<div class="sp-flow">{cells}</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sp-section">The result so far</div>', unsafe_allow_html=True)
+    st.markdown(ui.section("The result so far"), unsafe_allow_html=True)
     data = load_json(BACKTESTS / "dev.json")
     if data:
         render_headline(data["result"])
@@ -312,7 +311,7 @@ def rewrite_compare(items: list[dict]) -> None:
     done = [it for it in items if (it.get("rewrite") or {}).get("draft")]
     if not done:
         return
-    st.markdown('<div class="sp-page-title">Rewrites: before → after</div>', unsafe_allow_html=True)
+    st.markdown(ui.section("Rewrites: before → after"), unsafe_allow_html=True)
     for it in done:
         rw = it["rewrite"]
         with st.container(border=True):

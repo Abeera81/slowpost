@@ -30,22 +30,24 @@ CSS = """
 :root {
 /*VARS*/
   --s1: .25rem; --s2: .5rem; --s3: .75rem; --s4: 1rem; --s5: 1.5rem; --s6: 2.5rem;
-  --fs-xs: .8rem; --fs-sm: .9rem; --fs-md: 1rem; --fs-lg: 1.2rem; --fs-xl: 1.7rem;
-  --fs-hero: 3.4rem;
+  /* The four text levels (used everywhere): title, section, body, help */
+  --t-title: 2.5rem; --t-section: 1.3rem; --t-body: 1rem; --t-help: .85rem;
+  --fs-hero: 3.6rem;
   --radius: 12px;
 }
 .block-container { max-width: 1180px; padding-top: 4rem; }
 h1, h2, h3 { letter-spacing: -.01em; }
-.sp-page-title { font-size: var(--fs-xl); font-weight: 700; margin: 0 0 var(--s2); }
-.sp-lede { color: var(--muted); font-size: var(--fs-md); margin: 0 0 var(--s4); }
-.sp-small { color: var(--muted); font-size: var(--fs-xs); }
-.sp-section { font-size: var(--fs-lg); font-weight: 600; margin: var(--s5) 0 var(--s2); }
+.sp-page-title { font-size: var(--t-title); font-weight: 800; line-height: 1.1; margin: 0 0 var(--s2); }
+.sp-lede { color: var(--muted); font-size: var(--t-body); margin: 0 0 var(--s5); }
+.sp-small { color: var(--muted); font-size: var(--t-help); }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color: var(--muted); font-size: var(--t-help); }
+.sp-section { font-size: var(--t-section); font-weight: 600; margin: var(--s6) 0 var(--s2); }
 
 /* sidebar */
 [data-testid="stSidebar"] { border-right: 1px solid var(--border); }
-.sp-brand { font-size: var(--fs-xl); font-weight: 700; line-height: 1.1; margin: 0; }
-.sp-tagline { color: var(--muted); font-size: var(--fs-sm); margin: var(--s1) 0 var(--s4); }
-.sp-nav-label { color: var(--muted); font-size: var(--fs-xs); text-transform: uppercase;
+.sp-brand { font-size: var(--t-section); font-weight: 700; line-height: 1.1; margin: 0; }
+.sp-tagline { color: var(--muted); font-size: var(--t-help); margin: var(--s1) 0 var(--s4); }
+.sp-nav-label { color: var(--muted); font-size: var(--t-help); text-transform: uppercase;
   letter-spacing: .08em; margin: var(--s5) 0 var(--s1); }
 [data-testid="stSidebar"] .stButton button { justify-content: flex-start; border: 0;
   box-shadow: none; padding: var(--s2) var(--s3); border-radius: 10px; }
@@ -59,22 +61,22 @@ h1, h2, h3 { letter-spacing: -.01em; }
 
 /* badges */
 .sp-badge { display: inline-block; padding: 2px 10px; border-radius: 999px;
-  font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
+  font-size: var(--t-help); font-weight: 600; white-space: nowrap; }
 .sp-strong { color: var(--strong_fg); background: var(--strong_bg); }
 .sp-okay { color: var(--okay_fg); background: var(--okay_bg); }
 .sp-weak { color: var(--weak_fg); background: var(--weak_bg); }
 
 /* week cards */
-.sp-when { font-weight: 600; font-size: var(--fs-md); margin: 0; }
-.sp-local { color: var(--muted); font-size: var(--fs-xs); margin: 0 0 var(--s2); }
-.sp-title { font-size: var(--fs-lg); font-weight: 700; line-height: 1.25; margin: var(--s2) 0; }
-.sp-chance { margin-bottom: var(--s3); color: var(--muted); font-size: var(--fs-sm); }
-.sp-chance b { color: var(--text); font-size: var(--fs-lg); }
+.sp-when { font-weight: 600; font-size: var(--t-body); margin: 0; }
+.sp-local { color: var(--muted); font-size: var(--t-help); margin: 0 0 var(--s2); }
+.sp-title { font-size: var(--t-section); font-weight: 700; line-height: 1.25; margin: var(--s2) 0; }
+.sp-chance { margin-bottom: var(--s3); color: var(--muted); font-size: var(--t-help); }
+.sp-chance b { color: var(--text); font-size: var(--t-section); }
 .sp-legend { display: flex; flex-direction: column; gap: var(--s2); margin: var(--s2) 0 var(--s3);
-  font-size: var(--fs-sm); }
+  font-size: var(--t-help); }
 .sp-legend div { display: flex; gap: var(--s3); align-items: baseline; }
 .sp-legend .sp-badge { min-width: 5.5rem; text-align: center; }
-.sp-rw { font-size: var(--fs-sm); margin: var(--s2) 0 0; }
+.sp-rw { font-size: var(--t-help); margin: var(--s2) 0 0; }
 
 /* home: how it works */
 .sp-flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -84,26 +86,26 @@ h1, h2, h3 { letter-spacing: -.01em; }
 .sp-num { display: inline-block; width: 1.8rem; height: 1.8rem; line-height: 1.8rem;
   text-align: center; border-radius: 50%; background: var(--primary); color: #fff;
   font-weight: 700; margin-bottom: var(--s2); }
-.sp-flow-name { font-weight: 700; font-size: var(--fs-lg); }
+.sp-flow-name { font-weight: 700; font-size: var(--t-section); }
 
 /* backtest headline */
 .sp-hero { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: var(--s5); margin: 0 0 var(--s4); }
 .sp-hero-num { font-size: var(--fs-hero); font-weight: 800; line-height: 1; color: var(--primary); }
-.sp-hero-num.sp-none { color: var(--weak_fg); font-size: var(--fs-xl); }
-.sp-hero-head { font-size: var(--fs-lg); font-weight: 700; margin: var(--s2) 0 var(--s1); }
+.sp-hero-num.sp-none { color: var(--weak_fg); font-size: var(--t-section); }
+.sp-hero-head { font-size: var(--t-section); font-weight: 700; margin: var(--s2) 0 var(--s1); }
 
 /* progress */
 .sp-steps { list-style: none; padding: 0; margin: var(--s3) 0; }
 .sp-steps li { display: flex; gap: var(--s3); align-items: baseline; padding: var(--s2) 0;
-  border-bottom: 1px solid var(--border); font-size: var(--fs-md); }
+  border-bottom: 1px solid var(--border); font-size: var(--t-body); }
 .sp-steps .sp-mark { width: 1.2rem; text-align: center; font-weight: 700; }
-.sp-steps .sp-time { margin-left: auto; color: var(--muted); font-size: var(--fs-sm); }
+.sp-steps .sp-time { margin-left: auto; color: var(--muted); font-size: var(--t-help); }
 .sp-steps .sp-done .sp-mark { color: var(--strong_fg); }
 .sp-steps .sp-active { font-weight: 700; }
 .sp-steps .sp-active .sp-mark { color: var(--okay_fg); }
 .sp-steps .sp-wait { color: var(--muted); }
-.sp-elapsed { font-size: var(--fs-xl); font-weight: 700; margin: 0; }
+.sp-elapsed { font-size: var(--t-section); font-weight: 700; margin: 0; }
 .sp-sloth { display: inline-block; animation: sp-sway 6s ease-in-out infinite;
   transform-origin: top center; }
 @keyframes sp-sway { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
@@ -184,3 +186,16 @@ def steps_html(steps: list[dict]) -> str:
         rows.append(f'<li class="sp-{s["state"]}"><span class="sp-mark">{mark}</span>'
                     f'<span>{html.escape(s["name"])}</span><span class="sp-time">{secs}</span></li>')
     return '<ul class="sp-steps">' + "".join(rows) + "</ul>"
+
+
+# ---------- text levels as HTML (page title, section heading, helper text) ----------
+
+def page_title(title: str, lede: str) -> str:
+    """Level 1 (page title) plus one muted sentence saying what this step does."""
+    return (f'<div class="sp-page-title">{html.escape(title)}</div>'
+            f'<div class="sp-lede">{html.escape(lede)}</div>')
+
+
+def section(text: str) -> str:
+    """Level 2: section heading."""
+    return f'<div class="sp-section">{html.escape(text)}</div>'
