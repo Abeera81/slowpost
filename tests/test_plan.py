@@ -59,7 +59,7 @@ def test_app_pages_render_without_errors():
 
     at = AppTest.from_file(APP, default_timeout=30).run()
     assert not at.exception
-    for page in ("1 Data", "3 Brief", "4 Plan", "Instagram sample (no signal)"):
+    for page in ("0 Home", "1 Data", "3 Brief", "4 Plan", "Instagram sample (no signal)"):
         at.session_state["nav"] = page
         at.run()
         assert not at.exception, page

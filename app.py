@@ -31,7 +31,7 @@ BACKTESTS = DATA / "backtests"
 CURRENT = RUNS / "_current.json"
 CURRENT_LOG = RUNS / "_current.log"
 MODEL = "gemma3:4b"
-NAV = [("1 Data", "Data", ":material/database:"), ("2 Backtest", "Backtest", ":material/query_stats:"),
+NAV = [("0 Home", "Home", ":material/home:"), ("1 Data", "Data", ":material/database:"), ("2 Backtest", "Backtest", ":material/query_stats:"),
        ("3 Brief", "Brief", ":material/edit_note:"), ("4 Plan", "Plan", ":material/calendar_month:")]
 SECONDARY = ("Instagram sample (no signal)", "Instagram sample (no signal)", ":material/science:")
 
@@ -176,6 +176,29 @@ def render_backtest(data: dict) -> None:
 def page_title(title: str, lede: str) -> None:
     st.markdown(f'<div class="sp-page-title">{html.escape(title)}</div>'
                 f'<div class="sp-lede">{html.escape(lede)}</div>', unsafe_allow_html=True)
+
+
+STEPS = [("Data", "Fetch real DEV posts"), ("Backtest", "Check if history predicts anything"),
+         ("Brief", "Say what to write about"), ("Plan", "Drafts, scored and labelled")]
+
+
+def page_home() -> None:
+    st.markdown('<div class="sp-page-title">🦥 Slow Post</div>'
+                '<div class="sp-lede">Drafts your next posts while you rest, and tells you which '
+                'ones are worth writing.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sp-section">How it works</div>', unsafe_allow_html=True)
+    cells = "".join(f'<div class="sp-flow-step"><span class="sp-num">{i}</span>'
+                    f'<div class="sp-flow-name">{name}</div><div class="sp-small">{text}</div></div>'
+                    for i, (name, text) in enumerate(STEPS, 1))
+    st.markdown(f'<div class="sp-flow">{cells}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sp-section">The result so far</div>', unsafe_allow_html=True)
+    data = load_json(BACKTESTS / "dev.json")
+    if data:
+        render_headline(data["result"])
+    else:
+        st.info("No backtest yet. Start with the Data step, then run the backtest.")
+    st.caption("Runs on this computer. Nothing is uploaded.")
+    st.button("Start", type="primary", on_click=go, args=("1 Data",))
 
 
 def page_data() -> None:
@@ -464,7 +487,7 @@ def sidebar_nav() -> str:
     st.sidebar.markdown('<div class="sp-brand">🦥 Slow Post</div>'
                         '<div class="sp-tagline">Drafts next week\'s posts overnight and flags the '
                         'weak ones. Local only.</div>', unsafe_allow_html=True)
-    st.session_state.setdefault("nav", "1 Data")
+    st.session_state.setdefault("nav", "0 Home")
     current = st.session_state.nav
     for page_id, label, icon in NAV:
         st.sidebar.button(label, icon=icon, key=f"nav-{page_id}", width="stretch",
@@ -479,5 +502,5 @@ def sidebar_nav() -> str:
 
 st.markdown(ui.css(), unsafe_allow_html=True)
 page = sidebar_nav()
-{"1 Data": page_data, "2 Backtest": page_backtest, "3 Brief": page_brief, "4 Plan": page_plan,
+{"0 Home": page_home, "1 Data": page_data, "2 Backtest": page_backtest, "3 Brief": page_brief, "4 Plan": page_plan,
  SECONDARY[0]: page_instagram}[page]()

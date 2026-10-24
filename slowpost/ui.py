@@ -39,6 +39,7 @@ h1, h2, h3 { letter-spacing: -.01em; }
 .sp-page-title { font-size: var(--fs-xl); font-weight: 700; margin: 0 0 var(--s2); }
 .sp-lede { color: var(--muted); font-size: var(--fs-md); margin: 0 0 var(--s4); }
 .sp-small { color: var(--muted); font-size: var(--fs-xs); }
+.sp-section { font-size: var(--fs-lg); font-weight: 600; margin: var(--s5) 0 var(--s2); }
 
 /* sidebar */
 [data-testid="stSidebar"] { border-right: 1px solid var(--border); }
@@ -74,6 +75,16 @@ h1, h2, h3 { letter-spacing: -.01em; }
 .sp-legend div { display: flex; gap: var(--s3); align-items: baseline; }
 .sp-legend .sp-badge { min-width: 5.5rem; text-align: center; }
 .sp-rw { font-size: var(--fs-sm); margin: var(--s2) 0 0; }
+
+/* home: how it works */
+.sp-flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--s3); margin: var(--s2) 0 var(--s4); }
+.sp-flow-step { background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: var(--s4); }
+.sp-num { display: inline-block; width: 1.8rem; height: 1.8rem; line-height: 1.8rem;
+  text-align: center; border-radius: 50%; background: var(--primary); color: #fff;
+  font-weight: 700; margin-bottom: var(--s2); }
+.sp-flow-name { font-weight: 700; font-size: var(--fs-lg); }
 
 /* backtest headline */
 .sp-hero { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
