@@ -13,7 +13,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import altair as alt
@@ -22,7 +22,7 @@ import psutil
 import streamlit as st
 import streamlit.components.v1 as components
 
-from slowpost import ui
+from slowpost import schedule, ui
 from slowpost.compare import NAMES
 from slowpost.plan import apply_edits, normalize_labels, plan_csv, run_verdict
 
@@ -408,6 +408,65 @@ def page_brief() -> None:
     st.button("Start the run", type="primary", on_click=start_run)
     if st.session_state.get("start_msg"):
         st.error(st.session_state.start_msg)
+    schedule_section()
+
+
+def next_two_am() -> datetime:
+    now = datetime.now()
+    when = now.replace(hour=2, minute=0, second=0, microsecond=0)
+    return when if when > now else when + timedelta(days=1)
+
+
+def schedule_run(when: datetime) -> None:
+    """Button callback: save the job file and create the one-time Windows task."""
+    brief = st.session_state.get("brief", "").strip()
+    st.session_state.schedule_msg = None
+    if not brief:
+        st.session_state.schedule_msg = ("error", "Please write a brief first.")
+    elif not DEV_CSV.exists():
+        st.session_state.schedule_msg = ("error", "Fetch the DEV posts first (step 1).")
+    elif when <= datetime.now():
+        st.session_state.schedule_msg = ("error", "Pick a time in the future.")
+    else:
+        job = schedule.write_job(when, brief, st.session_state.get("facts", ""),
+                                 st.session_state.get("n", 5), DEV_CSV)
+        ok, message = schedule.create(when, job)
+        st.session_state.schedule_msg = (
+            "success" if ok else "error",
+            f"Scheduled {schedule.task_name(when)} for {when:%A %d %b, %H:%M}. Delete it any time "
+            f"with: {schedule.delete_text(when)}" if ok else f"Windows refused: {message}")
+
+
+def schedule_section() -> None:
+    """Overnight mode: a one-time Task Scheduler task. Nothing is created until the box is
+    ticked and the button clicked."""
+    st.markdown(ui.section("Or schedule it for tonight"), unsafe_allow_html=True)
+    with st.container(border=True):
+        st.caption("Creates a one-time Windows Task Scheduler task that runs this brief while you "
+                   "are away. The computer must be on and not asleep, you must be signed in, and "
+                   "Ollama must be running at that time. Runs here, nothing is uploaded.")
+        default = next_two_am()
+        c1, c2 = st.columns(2)
+        day = c1.date_input("Date", value=default.date(), min_value=datetime.now().date(),
+                            key="sched_date")
+        at = c2.time_input("Time", value=default.time(), step=900, key="sched_time")
+        when = datetime.combine(day, at)
+        job = schedule.SCHEDULED / f"{schedule.task_name(when)}.json"
+        st.markdown("The exact command that will run:")
+        st.code(schedule.command_text(schedule.create_args(when, job)), language="text")
+        agreed = st.checkbox("Yes, create this scheduled task on this computer", key="sched_ok")
+        st.button("Create scheduled task", disabled=not agreed, on_click=schedule_run,
+                  args=(when,))
+        msg = st.session_state.get("schedule_msg")
+        if msg:
+            (st.success if msg[0] == "success" else st.error)(msg[1])
+    pending_notice()
+
+
+def pending_notice() -> None:
+    for job in schedule.pending():
+        st.info(f"Scheduled for {datetime.fromisoformat(job['when']):%A %d %b, %H:%M}: "
+                f"{job['brief'][:80]}. Open the Plan page in the morning.")
 
 
 def revision_block(item: dict) -> None:
@@ -542,6 +601,18 @@ def live_status() -> None:
         st.code("\n".join(text.splitlines()[-12:]) or "Starting...")
 
 
+def good_morning(run: Path) -> None:
+    """The latest finished run, opened first: when it finished and a pointer to the verdict."""
+    done = datetime.fromtimestamp((run / "drafts.json").stat().st_mtime)
+    hours = (datetime.now() - done).total_seconds() / 3600
+    ago = f"{hours * 60:.0f} minutes ago" if hours < 1 else (
+        f"{hours:.0f} hours ago" if hours < 48 else f"{hours / 24:.0f} days ago")
+    greeting = "Good morning. Your run is ready." if hours < 18 else "Your latest run."
+    st.markdown(ui.section(greeting), unsafe_allow_html=True)
+    st.caption(f"It finished at {done:%H:%M} on {done:%A %d %b} ({ago}).")
+    pending_notice()
+
+
 def verdict_banner(verdict: dict) -> None:
     """The run's top line. With no Strong draft it says so and still names the best candidate."""
     best = verdict.get("best")
@@ -586,6 +657,7 @@ def page_plan() -> None:
         return
     data = normalize_labels(load_json(run / "drafts.json"))
     verdict = data.get("verdict") or run_verdict(data["drafts"])
+    good_morning(run)
     verdict_banner(verdict)
     st.caption(f"Run {run.name}. Brief: {data['brief']}")
     label_legend(data)

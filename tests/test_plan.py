@@ -175,3 +175,14 @@ def test_csv_has_revision_columns():
     row = next(csv.DictReader(io.StringIO(plan_csv([it]))))
     assert row["revision"].startswith("revised version kept") and row["original_title"] == "Old title"
     assert row["original_p_yes"] == "0.140" and row["original_label"] == "Weak"
+
+
+def test_schedule_button_is_disabled_until_the_user_ticks_the_box():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.session_state["nav"] = "3 Brief"
+    at.run()
+    create = next(b for b in at.main.button if b.label == "Create scheduled task")
+    assert create.disabled  # nothing can be created without an explicit yes
+    assert any("schtasks /Create" in c.value for c in at.main.code)
