@@ -318,3 +318,17 @@ def test_on_draft_reports_each_finished_slot():
     seen = []
     generate_drafts("brief", 3, chat=chat, on_draft=lambda done, total: seen.append((done, total)))
     assert seen == [(1, 3), (2, 3), (3, 3)]
+
+
+def test_a_change_the_history_contradicts_is_a_guess_not_backed_by_the_data():
+    # Cover: 'no cover' got reactions MORE often in this made-up history, yet the model scores
+    # removing the cover lower. The feature is clear overall, but the direction conflicts.
+    table = pd.DataFrame({"n": [500, 400], "top_share": [0.80, 0.94]}, index=["no", "yes"])
+    summary = {"top_label": "no_reactions", "overall_share": 0.84, "features": {
+        "has cover image": {"table": table, "clear": True}}}
+    a = score_drafts(FakeModel(), [make_draft(cover_idea="a sloth")], FACTS, 0.14, 0.30,
+                     {"has_cover_image"}, summary)[0]
+    cover = next(w for w in a["what_if"] if w["feature"] == "has_cover_image")
+    assert cover["conflict"] is True and cover["supported"] is False
+    assert cover["sentence"].startswith("The data points the other way")
+    assert a["best"] is None  # a contradicted change can never be the reason

@@ -186,3 +186,22 @@ def test_schedule_button_is_disabled_until_the_user_ticks_the_box():
     create = next(b for b in at.main.button if b.label == "Create scheduled task")
     assert create.disabled  # nothing can be created without an explicit yes
     assert any("schtasks /Create" in c.value for c in at.main.code)
+
+
+def test_saved_runs_are_rechecked_for_contradicted_changes():
+    from slowpost.plan import recheck_whatifs
+
+    it = {**item(), "p_yes": 0.22, "what_if": [
+        {"text": "main tag 'python'", "what": "the main tag 'python'", "feature": "main_tag",
+         "p": 0.28, "delta": 0.06, "supported": True,
+         "observed": {"new": 0.12, "old": 0.14}, "sentence": "old"},
+        {"text": "no cover", "what": "no cover image", "feature": "has_cover_image",
+         "p": 0.12, "delta": -0.10, "supported": True,
+         "observed": {"new": 0.06, "old": 0.20}, "sentence": "old"}]}
+    recheck_whatifs(it)
+    tag, cover = it["what_if"]
+    assert tag["conflict"] and not tag["supported"] and "points the other way" in tag["sentence"]
+    assert cover["supported"] and not cover["conflict"]
+    assert "No change backed by the data" in it["reason"]  # the cover removal lowers the score
+    recheck_whatifs(it)  # idempotent
+    assert tag["conflict"] and cover["supported"]

@@ -503,7 +503,9 @@ def revision_compare(items: list[dict], summary: dict | None) -> None:
                  f"{summary['changed_band']} changed band; strong drafts "
                  f"{summary['strong_before']} → {summary['strong_after']}.")
     st.caption("Gemma writes the revision; the score comes from TabPFN. A revision is kept only if "
-               "TabPFN scores it higher than the original.")
+               "TabPFN scores it higher than the original. Picking the higher of two scores favours "
+               "whatever the model likes, so a gain here is the model's own opinion, not a measured "
+               "result on real posts.")
     for it in done:
         rv = it["revision"]
         before = it["original"]["draft"] if it.get("original") else it["draft"]
@@ -563,9 +565,10 @@ def show_card(run: Path, i: int, item: dict) -> dict:
         with st.expander("Features (computed by code)"):
             st.json(edited["features"])
         with st.expander("What-if: what would change it?"):
-            st.write(item["reason"])
             sup = [w for w in item["what_if"] if w.get("supported")]
             rest = [w for w in item["what_if"] if not w.get("supported")]
+            if not sup:
+                st.write(item["reason"])
             st.markdown("**Backed by the data** (the signal summary shows a clear difference)")
             if sup:
                 for w in sup:
@@ -573,7 +576,8 @@ def show_card(run: Path, i: int, item: dict) -> dict:
             else:
                 st.caption("No what-if feature is backed by the data.")
             st.markdown("**The model's guess**")
-            st.caption("The data shows no clear difference for these, so treat them as guesses.")
+            st.caption("The data shows no clear difference for these, or points the other way, so "
+                       "treat them as guesses.")
             for w in rest:
                 st.markdown(":gray[" + (w.get("sentence")
                                          or f"{w['delta']:+.1%} points: {w['text']} ({w['p']:.0%})") + "]")
@@ -605,7 +609,8 @@ def good_morning(run: Path) -> None:
     """The latest finished run, opened first: when it finished and a pointer to the verdict."""
     done = datetime.fromtimestamp((run / "drafts.json").stat().st_mtime)
     hours = (datetime.now() - done).total_seconds() / 3600
-    ago = f"{hours * 60:.0f} minutes ago" if hours < 1 else (
+    minutes = round(hours * 60)
+    ago = ("just now" if minutes < 1 else f"{minutes} minute{'s' if minutes != 1 else ''} ago") if hours < 1 else (
         f"{hours:.0f} hours ago" if hours < 48 else f"{hours / 24:.0f} days ago")
     greeting = "Good morning. Your run is ready." if hours < 18 else "Your latest run."
     st.markdown(ui.section(greeting), unsafe_allow_html=True)

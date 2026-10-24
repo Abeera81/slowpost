@@ -26,7 +26,31 @@ def normalize_labels(data: dict) -> dict:
                 it["revision"][k] = fix(it["revision"][k])
     if data.get("verdict", {}).get("best"):
         data["verdict"]["best"]["label"] = fix(data["verdict"]["best"]["label"])
+    for it in data["drafts"]:
+        recheck_whatifs(it)
     return data
+
+
+def recheck_whatifs(item: dict) -> None:
+    """Re-apply the "backed by the data" rule to a saved draft: a feature with a clear difference
+    only backs a change when the history points the same way as the model. Runs saved before
+    this rule are corrected when they are opened. Idempotent."""
+    from .score import MIN_EFFECT, whatif_sentence
+
+    p0 = item["p_yes"]
+    if not any(w.get("observed") for w in item["what_if"]):
+        return  # saved before observed rates existed: leave as saved
+    for w in item["what_if"]:
+        obs = w.get("observed")
+        if not obs:
+            continue
+        clear = w.get("supported") or w.get("conflict")  # a clear feature, whatever its direction
+        conflict = bool(clear and (obs["new"] > obs["old"]) != (w["delta"] > 0))
+        w["conflict"], w["supported"] = conflict, bool(clear and not conflict)
+        w["sentence"] = whatif_sentence(w, p0)
+    best = next((w for w in item["what_if"] if w.get("supported") and w["delta"] >= MIN_EFFECT), None)
+    item["reason"] = (f"Backed by the data: {best['sentence']}" if best and best.get("sentence")
+                      else "No change backed by the data clearly helps this draft.")
 
 
 def apply_edits(item: dict, edit: dict | None) -> tuple[dict, str | None]:

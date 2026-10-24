@@ -111,6 +111,11 @@ def whatif_sentence(w: dict, p0: float) -> str:
     if obs is None:
         return model
     a, b = obs["new"], obs["old"]
+    if w.get("conflict"):
+        more = "more often" if a > b else "less often"
+        return (f"The data points the other way: posts like this with {w['what']} got reactions "
+                f"{more} ({a:.0%} vs {b:.0%}). The model still scores this variant {higher} "
+                f"({p0:.0%} to {w['p']:.0%}), so treat it as a guess.")
     if not w["supported"]:
         return (f"The data shows no clear difference for this feature ({a:.0%} vs {b:.0%} got "
                 f"reactions). {model}")
@@ -138,13 +143,20 @@ def score_drafts(model: Fitted, drafts: list[DevDraft], facts: dict | None,
     for start, variants in spans:
         p0 = float(probs[start])
         feats = rows[start]
-        what_if = sorted(
-            ({"text": v["text"], "what": v["what"], "feature": v["feature"],
-              "p": float(probs[start + 1 + i]), "delta": float(probs[start + 1 + i]) - p0,
-              "supported": v["feature"] in supported,
-              "observed": observed_rates(summary, v["feature"], feats, v["overrides"])
-              if summary else None} for i, v in enumerate(variants)),
-            key=lambda w: w["delta"], reverse=True)
+        what_if = []
+        for i, v in enumerate(variants):
+            delta = float(probs[start + 1 + i]) - p0
+            obs = observed_rates(summary, v["feature"], feats, v["overrides"]) if summary else None
+            clear = v["feature"] in supported
+            # "Backed by the data" needs the history to point the same way as the model: a
+            # feature with a clear difference overall does not back a change the history
+            # says goes the other way.
+            conflict = bool(clear and obs and (obs["new"] > obs["old"]) != (delta > 0))
+            what_if.append({"text": v["text"], "what": v["what"], "feature": v["feature"],
+                            "p": float(probs[start + 1 + i]), "delta": delta,
+                            "supported": clear and not conflict, "conflict": conflict,
+                            "observed": obs})
+        what_if.sort(key=lambda w: w["delta"], reverse=True)
         for w in what_if:
             w["sentence"] = whatif_sentence(w, p0)
         best = next((w for w in what_if if w["supported"] and w["delta"] >= MIN_EFFECT), None)

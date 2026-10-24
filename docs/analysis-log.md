@@ -118,3 +118,11 @@ conversation; the project notes record the decision but not always the reason.
   after holding the other fixed, but nothing here shows that adding a cover causes reactions.
 - **Fewer than 2,000 test posts, one seed.** Intervals reflect resampling of the test posts, not
   a different training sample.
+- **Revision gains are the model's own opinion.** A revision is kept when TabPFN scores it higher
+  than the original, so the choice is selected by the same model that then reports the gain
+  (a winner's curse). The gain has not been tested on real posts.
+- **Strong is a threshold, not a cliff.** A draft at 20.3% is Strong and one at 19.9% is not; the
+  threshold is 0.1997. Treat drafts near it as the same.
+- **Slot matters as much as wording.** Day and hour are chosen by code from the history's best
+  days and hours, so the first draft gets the best slot. In the real runs the Strong drafts tended
+  to be the ones in the best slots, even for a brief meant to be dull.
