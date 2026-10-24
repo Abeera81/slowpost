@@ -92,7 +92,7 @@ def evaluate(y_true: np.ndarray, proba: np.ndarray, classes: list[str], baseline
 
     everything = np.arange(len(y_true))
     rng = np.random.default_rng(seed)
-    ba_gaps, aucs = [], []
+    ba_gaps, aucs, bas = [], [], []
     binary = len(classes) == 2
     if binary:  # lift: do the posts the model ranks highest really get reactions more often?
         y_pos, score = y_true == classes[1], proba[:, 1]
@@ -101,12 +101,14 @@ def evaluate(y_true: np.ndarray, proba: np.ndarray, classes: list[str], baseline
     for _ in range(n_boot):
         idx = rng.integers(0, len(y_true), len(y_true))
         ba_gaps.append(gap_ba(idx))
+        bas.append(balanced_accuracy_score(y_true[idx], pred[idx]))
         aucs.append(_auc(y_true[idx], proba[idx], classes))
         if binary:
             boot_overall.append(float(y_pos[idx].mean()))
             for name, frac in LIFT_FRACTIONS.items():
                 boot_top[name].append(_top_share(y_pos[idx], score[idx], frac))
     ba_lo, ba_hi = np.percentile(ba_gaps, [2.5, 97.5])
+    bal_lo, bal_hi = np.percentile(bas, [2.5, 97.5])
     auc_lo, auc_hi = np.nanpercentile(aucs, [2.5, 97.5])
     res = {
         "n_test": len(y_true),
@@ -115,6 +117,7 @@ def evaluate(y_true: np.ndarray, proba: np.ndarray, classes: list[str], baseline
         "baseline_accuracy": float(accuracy_score(y_true, base_pred)),
         "balanced_accuracy": float(balanced_accuracy_score(y_true, pred)),
         "baseline_balanced_accuracy": float(balanced_accuracy_score(y_true, base_pred)),
+        "ba_ci": (float(bal_lo), float(bal_hi)),
         "ba_gap": float(gap_ba(everything)),
         "ba_gap_ci": (float(ba_lo), float(ba_hi)),
         "auc": _auc(y_true, proba, classes),
@@ -193,11 +196,16 @@ class Fitted:
 
 
 def fit_model(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwargs) -> Fitted:
-    """Split by time, learn label thresholds from training rows only, and fit TabPFN.
+    """Split by time, learn label thresholds from training rows only, and fit TabPFN."""
+    train, test = time_split(df, profile, seed=seed, **split_kwargs)
+    return fit_on(train, test, profile)
+
+
+def fit_on(train: pd.DataFrame, test: pd.DataFrame, profile: Profile) -> Fitted:
+    """Fit TabPFN on a given train/test split (label thresholds from training rows only).
     Imports TabPFN here so the rest of the module stays light."""
     from tabpfn import TabPFNClassifier
 
-    train, test = time_split(df, profile, seed=seed, **split_kwargs)
     thresholds = fit_thresholds(train["outcome"], profile)  # training rows only
     y_train = apply_labels(train["outcome"], thresholds, profile)
     y_test = apply_labels(test["outcome"], thresholds, profile)
@@ -217,14 +225,34 @@ def score_groups(y_pos: np.ndarray, p_yes: np.ndarray, cutoff: float, strong: fl
         "strong": p_yes >= strong,
         "weak": p_yes < cutoff,
     }
-    groups["okay"] = ~(groups["strong"] | groups["weak"])
+    groups["close"] = ~(groups["strong"] | groups["weak"])
     return {k: {"n": int(m.sum()), "share_with_reactions": float(y_pos[m].mean()) if m.any() else None}
             for k, m in groups.items()}
 
 
-def run_backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwargs
-                 ) -> tuple[dict, Fitted]:
-    """Backtest result plus the fitted model (so scoring can reuse it)."""
+def calibration_bins(y_pos: np.ndarray, p_yes: np.ndarray, n_bins: int = 8) -> list[dict]:
+    """Predicted vs actual: test posts sorted by P(yes) and cut into equal-count bins. Each bin
+    has the mean predicted P(yes), the share that really got reactions, and a 95% Wilson
+    interval for that share."""
+    order = np.argsort(p_yes, kind="stable")
+    out = []
+    for chunk in np.array_split(order, n_bins):
+        n = len(chunk)
+        if not n:
+            continue
+        k, p_hat = int(y_pos[chunk].sum()), float(y_pos[chunk].mean())
+        z = 1.96
+        centre = (p_hat + z * z / (2 * n)) / (1 + z * z / n)
+        half = z * math.sqrt(p_hat * (1 - p_hat) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+        out.append({"n": n, "mean_predicted": float(p_yes[chunk].mean()), "actual": p_hat,
+                    "actual_ci": (max(0.0, centre - half), min(1.0, centre + half)), "positives": k})
+    return out
+
+
+def run_backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, compare: bool = False,
+                 **split_kwargs) -> tuple[dict, Fitted]:
+    """Backtest result plus the fitted model (so scoring can reuse it). With compare=True the
+    result also holds logistic regression, gradient boosting and a random-split TabPFN run."""
     model = fit_model(df, profile, seed=seed, **split_kwargs)
     t0 = time.perf_counter()
     proba = model.clf.predict_proba(model.x_test)
@@ -252,9 +280,16 @@ def run_backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwar
         res["score_groups"] = score_groups(
             (model.y_test.values == model.classes[1]), p_yes, res["cutoff"],
             res["strong_threshold"])
+        res["calibration"] = calibration_bins(model.y_test.values == model.classes[1], p_yes)
+    if compare:
+        from .compare import compare_models, random_split
+
+        res["compare"] = compare_models(model, proba, res, seed=seed)
+        res["compare"]["random_split"] = random_split(df, profile, seed=seed)
     return res, model
 
 
-def backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, **split_kwargs) -> dict:
+def backtest(df: pd.DataFrame, profile: Profile, seed: int = 0, compare: bool = False,
+             **split_kwargs) -> dict:
     """Run the whole backtest and return only the result."""
-    return run_backtest(df, profile, seed=seed, **split_kwargs)[0]
+    return run_backtest(df, profile, seed=seed, compare=compare, **split_kwargs)[0]

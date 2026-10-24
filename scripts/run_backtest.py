@@ -17,6 +17,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from slowpost.compare import NAMES
+from slowpost.controls import controlled_checks
 from slowpost.data import load_posts
 from slowpost.labels import apply_labels, fit_thresholds
 from slowpost.predict import backtest
@@ -57,7 +59,7 @@ def main() -> None:
     print(describe(summary))
 
     print("\nBacktest (TabPFN, local, CPU)...")
-    r = backtest(df, profile)
+    r = backtest(df, profile, compare=True)
     print(f"train: {r['n_train']} posts sampled from {r['train_range'][0]} to {r['train_range'][1]}")
     print(f"test:  {r['n_test']} posts, {r['test_window']}, "
           f"{r['test_range'][0]} to {r['test_range'][1]}")
@@ -80,6 +82,20 @@ def main() -> None:
               f"lift {v['lift']:.2f}x (CI {v['lift_ci'][0]:.2f} to {v['lift_ci'][1]:.2f})")
     print(f"raw accuracy (reference only): TabPFN {r['accuracy']:.3f} vs baseline "
           f"{r['baseline_accuracy']:.3f}")
+    cmp = r.get("compare")
+    if cmp:
+        print("\nSame split, four models (balanced accuracy / ROC AUC / lift in the top 10%):")
+        for key, row in cmp["models"].items():
+            top = row.get("top10")
+            print(f"  {NAMES[key]:<22} BA {row['balanced_accuracy']:.3f}  AUC {row['auc']:.3f}"
+                  + (f"  top-10% lift {top['lift']:.2f}x" if top else ""))
+        for key, d in cmp["tabpfn_minus"].items():
+            print(f"  TabPFN minus {NAMES[key]}: AUC {d['auc_diff']:+.3f} "
+                  f"(paired 95% CI {d['auc_diff_ci'][0]:+.3f} to {d['auc_diff_ci'][1]:+.3f})")
+        print(cmp["winner"])
+        rs = cmp["random_split"]
+        print(f"TabPFN on a random 80/20 split (for comparison only): BA "
+              f"{rs['balanced_accuracy']:.3f}, AUC {rs['auc']:.3f}")
     print(f"\nVERDICT: {r['verdict']}")
     if args.save:
         out = save_json(ROOT / "data" / "backtests" / f"{args.source}.json", {
@@ -87,6 +103,7 @@ def main() -> None:
             "first_post": str(df[profile.time_col].min()), "last_post": str(df[profile.time_col].max()),
             "label_mix": labels.value_counts(normalize=True).round(3).to_dict(),
             "result": r, "signals": to_jsonable(summary),
+            "controls": controlled_checks(df) if profile.name == "dev_posts" else None,
             "supported_features": sorted(supported_features(summary)) if profile.name == "dev_posts" else []})
         print(f"Saved {out}")
 
