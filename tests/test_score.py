@@ -357,3 +357,16 @@ def test_whatif_sentence_decimals_and_about_the_same():
     s = whatif_sentence({**base, "supported": False, "conflict": True,
                          "observed": {"new": 0.12, "old": 0.14}}, 0.22)
     assert s.startswith("The data points the other way") and "less often (12% vs 14%)" in s
+
+
+def test_one_decimal_whenever_the_gap_is_under_a_point():
+    from slowpost.score import whatif_sentence
+
+    w = {"what": "a Monday post", "p": 0.196, "delta": -0.004, "supported": True}
+    # 16.4% and 16.6% round to 16% and 17%, but they are under a point apart.
+    s = whatif_sentence({**w, "observed": {"new": 0.164, "old": 0.166}}, 0.20)
+    assert "16.4% vs 16.6%" in s and "about the same rate" in s
+    assert "(20.0% to 19.6%)" in s  # the model's numbers: 0.4 points apart, one decimal
+    # Exactly one point apart is a real difference: whole numbers and a direction word.
+    s = whatif_sentence({**w, "p": 0.28, "delta": 0.08, "observed": {"new": 0.18, "old": 0.17}}, 0.20)
+    assert "18% vs 17%" in s and "more often" in s

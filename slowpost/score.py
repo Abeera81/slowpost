@@ -103,14 +103,15 @@ def whatif_variants(feats: dict, facts: dict | None) -> list[dict]:
     return out
 
 
+SAME_RATE = 0.01 - 1e-9  # a gap under one percentage point is "about the same" (float slack)
+
+
 def _pair(a: float, b: float) -> tuple[str, str]:
     """Two shares as percentages: whole numbers, or one decimal when they would round to the
-    same whole number (so "16% vs 16%" becomes "16.2% vs 15.9%")."""
-    digits = 1 if round(a * 100) == round(b * 100) else 0
+    same whole number or are less than one point apart (so "16% vs 16%" becomes
+    "16.2% vs 15.9%" and "16% vs 17%" becomes "16.4% vs 16.6%")."""
+    digits = 1 if round(a * 100) == round(b * 100) or abs(a - b) < SAME_RATE else 0
     return f"{a:.{digits}%}", f"{b:.{digits}%}"
-
-
-SAME_RATE = 0.01  # a gap under one percentage point is "about the same"
 
 
 def whatif_sentence(w: dict, p0: float) -> str:
