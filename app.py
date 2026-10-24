@@ -715,8 +715,11 @@ def go(page: str) -> None:
 
 def scroll_to_top() -> None:
     if st.session_state.pop("scroll_top", False):
-        components.html("<script>const m = window.parent.document.querySelector("
-                        "'[data-testid=\"stMain\"]'); if (m) m.scrollTo(0, 0);</script>", height=0)
+        # Scroll again after the new page has drawn, because it is taller than the old scroll
+        # position allows for a moment.
+        components.html("<script>const go = () => { const m = window.parent.document.querySelector("
+                        "'[data-testid=\"stMain\"]'); if (m) m.scrollTo(0, 0); };"
+                        "go(); setTimeout(go, 150); setTimeout(go, 600);</script>", height=0)
 
 
 def sidebar_nav() -> str:

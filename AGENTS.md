@@ -14,7 +14,7 @@ The shell is **Git Bash on Windows**. Write every command for Git Bash, not Powe
 - `python scripts/spike.py` — M0 machine check (TabPFN and Gemma run locally). Gemma size chosen: `gemma3:4b`.
 - `python scripts/fetch_dev_posts.py` — fetch DEV posts into `data/dev_posts.csv` (git-ignored).
 - `python scripts/run_backtest.py --source dev|instagram` — backtest and signal summary for one source.
-- `python scripts/run_overnight.py ...` — headless pipeline run (no UI).
+- `python scripts/run_overnight.py ...` — headless pipeline run (no UI); `--job <file>` is what a scheduled task runs (Task Scheduler is only used after an explicit yes in the app).
 - `ollama serve` must be running (or the Ollama app open) before any drafting step.
 
 The spike, fetch and backtest commands have been run. Details are in `agent_docs/tech_stack.md`.
@@ -55,7 +55,7 @@ Tests are local and use `sample/` or temporary files. Slow integration tests nee
 
 - **Model can see:** past-post feature columns, summaries computed by code, the user's brief. All on the local machine.
 - **Never send:** anything off the laptop. No cloud AI, no telemetry, no `tabpfn-client`.
-- **AI can do:** Gemma drafts and rewrites caption text only. TabPFN predicts labels. Code reads files and writes only under `data/`.
+- **AI can do:** Gemma drafts and revises post text only (one revision per draft that is not Strong; TabPFN rescores and decides which version is kept). TabPFN predicts labels and makes the final ranking. Code reads files and writes only under `data/`.
 - **Needs approval:** nothing is ever posted. The user copies drafts out manually.
 - **How to verify behavior:** the evaluation cases in `agent_docs/testing.md`.
 - **Fallback:** clear plain-language messages when Ollama isn't running, TabPFN weights are missing, or a draft fails validation twice.

@@ -13,7 +13,7 @@
   - Source profiles (DEV, Instagram), with a column summary and clear errors for missing columns
   - Backtest: time-ordered; TabPFN vs most-common-label baseline; balanced accuracy at a training-share cutoff, ROC AUC, plain verdict; signal summary by feature
   - Draft next posts (DEV first): schema-validated Gemma drafts; works offline
-  - Score and rewrite: label, confidence, plain-language reason per draft; weak drafts rewritten at most once
+  - Score and rewrite: label, confidence, plain-language reason per draft; every draft that is not Strong gets one Gemma revision, kept only if TabPFN scores it higher; run verdict ("Go back to sleep" when nothing is Strong)
   - Plan and export: editable cards, CSV download
 - Nice to have (only after the core works): overnight scheduling, best-time-slot suggestion, run log with timings, a Meta export profile
 - Not in v1:
