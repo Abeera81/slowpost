@@ -4,7 +4,7 @@ Slow Post learns from a post history, drafts next week's posts overnight on your
 
 Everything runs locally: no cloud AI, no telemetry. Built for the DEV Hacktoberfest challenge. The demo source is real DEV posts; a public Instagram sample is the "no signal" test case.
 
-![The week's plan: Strong, Okay and Weak drafts with the measured lift](docs/screenshots/09-plan-labels.jpg)
+![The week's plan: Strong, Too close to call and Weak drafts with the measured lift](docs/screenshots/09-plan-labels.jpg)
 
 Walkthrough (Data, Backtest, Brief, Plan, Download): `docs/slowpost-walkthrough.gif`. More screenshots are in `docs/screenshots/`.
 
@@ -24,6 +24,23 @@ All numbers come from a time-ordered backtest: train on a random sample of up to
 
 Raw accuracy is not a good measure here: "always no reactions" would score 78%, so the app reports balanced accuracy, ROC AUC and lift instead.
 
+### Is TabPFN better than a simple model?
+
+Same training sample, same 2,000 test posts, same 95% bootstrap intervals (the app shows this table on the Backtest page):
+
+| Model | Balanced accuracy | ROC AUC | Lift, top 10% | Lift, top 20% |
+|---|---|---|---|---|
+| Most common outcome | 0.500 | 0.500 | 1.00x | 1.00x |
+| Logistic regression | 0.555 (0.530 to 0.579) | 0.573 (0.546 to 0.602) | 1.53x (1.26x to 1.82x) | 1.24x (1.09x to 1.46x) |
+| Gradient boosting | 0.523 (0.498 to 0.549) | 0.529 (0.497 to 0.560) | 1.35x (1.10x to 1.70x) | 1.22x (1.03x to 1.38x) |
+| **TabPFN** | 0.544 (0.519 to 0.570) | 0.588 (0.556 to 0.620) | 1.67x (1.37x to 1.97x) | 1.38x (1.18x to 1.56x) |
+
+TabPFN ranks posts clearly better than gradient boosting (AUC +0.059, paired 95% interval +0.034 to +0.084); it is not clearly different from logistic regression (AUC +0.014, paired 95% interval -0.007 to +0.035). So TabPFN does not clearly win here: a simple model does about as well. Logistic regression has the higher balanced accuracy (0.555 vs 0.544).
+
+TabPFN on a *random* 80/20 split (comparison only): balanced accuracy 0.610 (0.582 to 0.638), ROC AUC 0.647 (0.616 to 0.676), top-10% lift 1.96x (1.61x to 2.30x). The random split looks better because the model gets to learn from posts published in the same weeks it is tested on. The time-ordered split is the honest one: a plan is written before the week starts, so the model has to predict newer posts from older ones.
+
+The calibration chart on the Backtest page shows that the model's percentages run below what really happened (about 16% predicted on average, 22% of test posts got reactions), so read them as a ranking, not as odds. The decisions behind all of this are in [`docs/analysis-log.md`](docs/analysis-log.md).
+
 **Instagram sample** (one account, 1,599 posts, label: thirds of engagement):
 
 | | Result |
@@ -38,14 +55,15 @@ Raw accuracy is not a good measure here: "always no reactions" would score 78%, 
 1. **Data:** fetch public DEV posts (tags webdev, python, javascript, beginners; posts at least 14 days old).
 2. **Backtest:** TabPFN is fitted on older posts and tested on the newest week. The result includes a signal summary: which features (cover image, tags, hour, title, and so on) show a clear difference.
 3. **Brief:** write what the posts are about, plus optional facts about your project. Gemma drafts posts (title, up to 4 tags from your history's most common tags, cover idea, outline, reading time, day and hour in UTC and local time). Features are computed by code, never by Gemma.
-4. **Plan:** each draft gets Strong, Okay or Weak, with the measured test-window numbers next to the labels. A what-if panel separates "Backed by the data" from "The model's guess". A weak draft is rewritten once, only if a change backed by the data is expected to help.
-5. **Download:** edit the cards and download `plan.csv`. Edits are not rescored.
+4. **Plan:** each draft gets Strong, Too close to call or Weak, with the measured test-window numbers next to the labels. The plan leads with a verdict: "N strong ideas this week." or, if nothing is Strong, "Nothing stands out this week. Go back to sleep." (with the best candidate named anyway). A what-if panel separates "Backed by the data" from "The model's guess"; its wording is about what the history shows ("posts like this with X got reactions more often, 20% vs 6%"), not what a change would cause.
+5. **Revision:** every draft that is not Strong gets one revision from Gemma, which sees the draft, its score and band, and the backed-by-the-data evidence with observed rates. Code recomputes the features and TabPFN rescores both versions; the revision is kept only if it scores higher. The final labels and ranking always come from TabPFN, never from Gemma. The Plan page shows before and after and how many drafts changed band.
+6. **Download:** edit the cards and download `plan.csv` (it repeats the run verdict on every row). Edits are not rescored.
 
 Nothing is ever posted for you.
 
 ## Setup (Git Bash on Windows)
 
-Tested on Python 3.14.4 on Windows (Git Bash), with [Ollama](https://ollama.com) and roughly 6 GB of free RAM. It runs on CPU. A run takes about 10 minutes for 5 drafts. Gemma and TabPFN never run at the same time.
+Tested on Python 3.14.4 on Windows (Git Bash), with [Ollama](https://ollama.com) and roughly 6 GB of free RAM. It runs on CPU. A run takes about 10 to 15 minutes for 5 drafts. Gemma and TabPFN never run at the same time.
 
 ```bash
 git clone git@github.com:Abeera81/slowpost.git
@@ -75,12 +93,26 @@ pytest -m "not slow"                         # tests (slow ones need Ollama)
 ruff check .
 ```
 
+## Overnight mode (Windows Task Scheduler)
+
+The Brief page can schedule one run for later ("Schedule for tonight"). Nothing is created until you tick the box and click "Create scheduled task"; the page shows the exact command first. The brief is saved in `data/scheduled/<task>.json` (git-ignored) so no free text has to be quoted on the command line. For example, for 02:00 on 26 October 2026 (the paths are yours; the app prints the exact command for the time you pick):
+
+```bash
+schtasks /Create /SC ONCE /TN SlowPost-20261026-0200 /TR "\"D:Hackathonslowpost.venvScriptspython.exe\" \"D:\Hackathon\slowpost\scripts\run_overnight.py\" --job \"D:\Hackathon\slowpost\data\scheduled\SlowPost-20261026-0200.json\"" /ST 02:00 /SD 26/10/2026 /F
+```
+
+The date must be written the way Windows shows short dates (for example `26/10/2026` or `10/26/2026`); the app reads the pattern from your regional settings. To remove a task: `schtasks /Delete /TN SlowPost-YYYYMMDD-HHMM /F`. The computer must be on and not asleep, you must be signed in, and Ollama must be running at that time. In the morning the Plan page opens the latest finished run with its verdict ("Good morning"); a scheduled run writes the same files as a run started from the app.
+
+## Data source
+
+Posts come from DEV's public Forem API v1, `GET https://dev.to/api/articles`, at about 1 request per second. Only 8 fields are stored: post id, time, title, tags, reading time, whether there is a cover image, reaction count and comment count. Author names and usernames are never stored. The file lives in `data/` on your computer and is never redistributed. Reading time and the cover flag reflect their current values (authors can edit them after publishing).
+
 ## Your data stays on your laptop
 
 - Gemma runs through Ollama on your machine; TabPFN runs with the local `tabpfn` package, never the cloud client. There is no telemetry and no cloud AI.
 - The only network calls are fetching public DEV posts and downloading models. After that, the app works offline.
 - `data/` (fetched posts, backtests, run outputs) is git-ignored. Only `sample/sample_posts.csv` is committed.
-- DEV posts are fetched from the public API, and only these fields are stored: post id, time, title, tags, reading time, cover-image flag, reaction count and comment count. Author names and usernames are never stored. Gemma sees computed summaries, never DEV titles.
+- DEV posts are fetched from the public API, and only these fields are stored: post id, time, title, tags, reading time, cover-image flag, reaction count and comment count. Author names and usernames are never stored. Gemma sees computed summaries, never DEV titles. See "Data source" above.
 
 ## Licences
 
