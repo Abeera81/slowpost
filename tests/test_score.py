@@ -285,3 +285,12 @@ def test_persistent_duplicate_is_flagged_after_two_regenerations():
     out = generate_drafts("brief", 2, chat=chat)
     assert len(prompts) == 4  # draft 1: 1 call; draft 2: 1 + 2 regenerations
     assert any("two regenerations did not fix it" in n for n in out[1]["draft"].notes)
+
+
+def test_on_draft_reports_each_finished_slot():
+    titles = iter(["Alpha headline one", "Completely different words", "Zebra crossing study"])
+    chat = lambda p, s: DraftText(title=next(titles), tags=["python"], cover_idea="cov",
+                                  outline=["a", "b", "c"], reading_time_minutes=5).model_dump_json()
+    seen = []
+    generate_drafts("brief", 3, chat=chat, on_draft=lambda done, total: seen.append((done, total)))
+    assert seen == [(1, 3), (2, 3), (3, 3)]

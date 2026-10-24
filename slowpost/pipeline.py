@@ -68,7 +68,8 @@ def run_overnight(brief: str, project_facts: str, history_csv: Path, out_root: P
 
     # 1. Gemma drafts (then Gemma unloads itself).
     t0 = time.perf_counter()
-    results = generate_drafts(brief, n, history, chat, project_facts)
+    results = generate_drafts(brief, n, history, chat, project_facts,
+                              on_draft=lambda done, total: say(f"Drafted {done}/{total}"))
     timed("1 drafting (Gemma)", t0)
     drafts = [r["draft"] for r in results if r["draft"]]
     if not drafts:

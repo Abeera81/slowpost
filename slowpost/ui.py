@@ -43,6 +43,20 @@ h1, h2, h3 { letter-spacing: -.01em; }
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color: var(--muted); font-size: var(--t-help); }
 .sp-section { font-size: var(--t-section); font-weight: 600; margin: var(--s6) 0 var(--s2); }
 
+/* metric boxes: small muted label above a large number */
+[data-testid="stMetric"] { background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: var(--s4); }
+[data-testid="stMetricLabel"] p { color: var(--muted); font-size: var(--t-help); }
+[data-testid="stMetricValue"] { font-size: 2.2rem; font-weight: 700; }
+
+/* buttons: one filled primary per page; secondary actions are quieter */
+[data-testid="stMain"] [data-testid="stBaseButton-primary"] { background: var(--primary);
+  color: #fff; font-weight: 700; padding: var(--s2) var(--s4); border: 0; }
+[data-testid="stMain"] [data-testid="stBaseButton-secondary"] { background: transparent;
+  color: var(--muted); font-weight: 500; border: 1px solid var(--border); }
+[data-testid="stMain"] [data-testid="stBaseButton-secondary"]:hover { color: var(--text);
+  border-color: var(--muted); }
+
 /* sidebar */
 [data-testid="stSidebar"] { border-right: 1px solid var(--border); }
 .sp-brand { font-size: var(--t-section); font-weight: 700; line-height: 1.1; margin: 0; }
@@ -146,6 +160,7 @@ STEPS = [
     ("Scoring drafts with TabPFN", "2b scoring"),
     ("Rewriting weak drafts", None),  # done when the run is saved
 ]
+_DRAFTED = re.compile(r"Drafted (\d+)/(\d+)")
 _TIME = re.compile(r"\]\s*(.+?): ([\d.]+) s \(")
 
 
@@ -167,13 +182,17 @@ def parse_progress(log: str) -> list[dict]:
         else:
             hit = next((k for k in seconds if k.startswith(prefix)), None)
             done, secs = hit is not None, seconds.get(hit) if hit else None
+        label = name
         if done:
             state = "done"
         elif not found_active:
             state, found_active = "active", True
+            counts = _DRAFTED.findall(log) if prefix == "1 drafting" else []
+            if counts:
+                label = f"{name} {counts[-1][0]}/{counts[-1][1]}"
         else:
             state = "wait"
-        out.append({"name": name, "state": state, "seconds": secs})
+        out.append({"name": label, "state": state, "seconds": secs})
     return out
 
 

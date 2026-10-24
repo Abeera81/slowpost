@@ -120,3 +120,10 @@ def test_progress_steps_follow_the_log():
               "\n[398s] 2b scoring drafts: 39.6 s (f")
     assert states(scored) == ["done", "done", "done", "active"]
     assert states(scored + "\nTotal 399 s. Saved to x") == ["done"] * 4
+
+
+def test_progress_shows_drafting_count_while_drafting():
+    from slowpost.ui import parse_progress
+
+    steps = parse_progress("[40s] Drafted 1/5\n[90s] Drafted 2/5")
+    assert steps[0]["state"] == "active" and steps[0]["name"] == "Drafting with Gemma 2/5"

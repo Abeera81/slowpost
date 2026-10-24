@@ -260,8 +260,9 @@ def draft_one(brief: str, angle: str, slot: tuple[str, int], facts: dict | None,
 
 
 def generate_drafts(brief: str, n: int = DEFAULT_N, history: pd.DataFrame | None = None,
-                    chat: Chat = ollama_chat, project_facts: str = "") -> list[dict]:
-    """n drafts, one per slot. A slot that fails twice is reported and the others continue.
+                    chat: Chat = ollama_chat, project_facts: str = "",
+                    on_draft: Callable[[int, int], None] | None = None) -> list[dict]:
+    """n drafts, one per slot. on_draft(done, n) is called after each finished slot. A slot that fails twice is reported and the others continue.
     A title that is the same or nearly the same as an earlier draft's is regenerated once.
     Each item: {slot, angle, draft | None, features | None, error | None, seconds}."""
     if not brief or not brief.strip():
@@ -296,4 +297,6 @@ def generate_drafts(brief: str, n: int = DEFAULT_N, history: pd.DataFrame | None
             "features": draft_features(draft) if draft else None,
             "seconds": round(time.perf_counter() - t0, 1),
         })
+        if on_draft:
+            on_draft(i + 1, n)
     return out

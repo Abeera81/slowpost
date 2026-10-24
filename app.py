@@ -202,10 +202,9 @@ def page_home() -> None:
 
 def page_data() -> None:
     page_title("Your post history",
-               "Slow Post learns from real DEV posts (fetched from DEV's public API). Only post id, "
-               "time, title, tags, reading time, cover flag and reaction counts are kept, never "
-               "author names. Everything stays on this computer.")
-    if not DEV_CSV.exists():
+               "The real DEV posts Slow Post learns from. Check the numbers, then run the backtest.")
+    have = DEV_CSV.exists()
+    if not have:
         st.error(f"No DEV posts found at `{DEV_CSV}`. Click the button to fetch them.")
     else:
         s = dev_summary(str(DEV_CSV), DEV_CSV.stat().st_mtime)
@@ -214,8 +213,18 @@ def page_data() -> None:
         c2.metric("Got any reactions", f"{s['share']:.1%}")
         st.write(f"Published from **{s['first']}** to **{s['last']}**.")
         st.caption("Posts are at least 14 days old, so reactions have mostly settled.")
-    label = "Fetch DEV posts again" if DEV_CSV.exists() else "Fetch DEV posts"
-    if st.button(label, help="Tags webdev, python, javascript, beginners; about 3 to 5 minutes"):
+    st.markdown(ui.section("Next"), unsafe_allow_html=True)
+    first, second, _ = st.columns([2, 2, 3])
+    if have:
+        first.button("Next: run the backtest →", type="primary", on_click=go, args=("2 Backtest",))
+    fetch = (second if have else first).button(
+        "Fetch DEV posts again" if have else "Fetch DEV posts",
+        type="secondary" if have else "primary",
+        help="Tags webdev, python, javascript, beginners; about 3 to 5 minutes")
+    st.caption("Fetched from DEV's public API. Only post id, time, title, tags, reading time, "
+               "cover flag and reaction counts are kept, never author names. Everything stays "
+               "on this computer.")
+    if fetch:
         with st.spinner("Fetching DEV posts (about 3 to 5 minutes)..."):
             ok, tail = run_script(["scripts/fetch_dev_posts.py", "--out", str(DEV_CSV)])
         dev_summary.clear()
@@ -225,18 +234,25 @@ def page_data() -> None:
 
 def page_backtest() -> None:
     page_title("Does the history predict anything?",
-               "Honest check: train on older posts, test on the newest week, and compare with "
-               "always guessing the most common outcome.")
+               "Train on older posts, test on the newest week, and compare with always guessing "
+               "the most common outcome. Then write a brief.")
     if not DEV_CSV.exists():
         st.error("Fetch the DEV posts first (step 1).")
         return
-    if st.button("Run backtest (about 3 minutes)"):
+    data = load_json(BACKTESTS / "dev.json")
+    first, second, _ = st.columns([2, 2, 3])
+    if data:
+        first.button("Next: write a brief →", type="primary", on_click=go, args=("3 Brief",))
+    run = (second if data else first).button(
+        "Run the backtest again (3 min)" if data else "Run backtest (about 3 minutes)",
+        type="secondary" if data else "primary")
+    if run:
         with st.spinner("Running the backtest with TabPFN on this computer..."):
             ok, tail = run_script(["scripts/run_backtest.py", "--source", "dev", "--save"])
         if not ok:
             st.error("The backtest failed.")
             st.code(tail)
-    data = load_json(BACKTESTS / "dev.json")
+        data = load_json(BACKTESTS / "dev.json")
     if data:
         render_backtest(data)
     else:
@@ -275,13 +291,15 @@ def start_run() -> None:
 
 def page_brief() -> None:
     page_title("What should next week's posts be about?",
-               "Write a short brief. Gemma drafts, then TabPFN scores, one after the other.")
-    st.text_area("Brief", key="brief", height=90,
-                 placeholder="A DEV post about building a local tool that ...")
-    st.text_area("Facts (optional)", key="facts", height=110,
-                 help="Reference facts about your project. Gemma treats them as data, so it "
-                      "doesn't invent how things work.")
-    st.slider("Number of drafts", 1, 7, 5, key="n")
+               "Say what next week's posts should be about, then start the run. Gemma drafts, then TabPFN "
+               "scores, one after the other.")
+    with st.container(border=True):
+        st.text_area("Brief", key="brief", height=90,
+                     placeholder="A DEV post about building a local tool that ...")
+        st.text_area("Facts (optional)", key="facts", height=110,
+                     help="Reference facts about your project. Gemma treats them as data, so it "
+                          "doesn't invent how things work.")
+        st.slider("Number of drafts", 1, 7, 5, key="n")
     st.caption("A run takes about 10 minutes. You can leave this tab open or come back later.")
     problem = ollama_problem()
     if problem:
@@ -418,7 +436,8 @@ def label_legend(data: dict) -> None:
 
 
 def page_plan() -> None:
-    page_title("The week's plan", "Drafts by day and time, each with a label and a chance of reactions.")
+    page_title("The week's plan", "Next week's drafts by day and time, each with a label and a chance of reactions. "
+               "Edit what you like, then download the plan.")
     state = run_state()
     if state["active"]:
         live_status()  # refreshes itself; the full page reruns when the run ends
@@ -439,9 +458,9 @@ def page_plan() -> None:
     label_legend(data)
     items = sorted(data["drafts"], key=lambda it: (it["features"]["weekday"], it["features"]["hour"]))
     edited: list[dict] = []
-    for start in range(0, len(items), 3):
-        cols = st.columns(3)
-        for col, i in zip(cols, range(start, min(start + 3, len(items))), strict=False):
+    for start in range(0, len(items), 2):
+        cols = st.columns(2)
+        for col, i in zip(cols, range(start, min(start + 2, len(items))), strict=False):
             with col:
                 edited.append(show_card(run, i, items[i]))
     rewrite_compare(items)
@@ -455,20 +474,22 @@ def page_plan() -> None:
 
 def page_instagram() -> None:
     page_title("Instagram sample: a test case with no signal",
-               "One account from a public Kaggle dataset (CC BY 4.0, Kundan Sagar Bedmutha). It is "
-               "here to show that Slow Post reports honestly when a history has nothing to learn. "
-               "The verdict below is computed, not scripted. Backtest only; no drafting.")
+               "One account from a public Kaggle dataset (CC BY 4.0, Kundan Sagar Bedmutha), here to "
+               "show that Slow Post says so when a history has nothing to learn. The verdict is "
+               "computed, not scripted. Backtest only.")
     sample = ROOT / "sample" / "sample_posts.csv"
     if not sample.exists():
         st.error("sample/sample_posts.csv is missing.")
         return
-    if st.button("Run backtest on the sample (about 1 minute)"):
+    data = load_json(BACKTESTS / "instagram.json")
+    if st.button("Run backtest again (about 1 minute)" if data else "Run backtest on the sample (about 1 minute)",
+                 type="secondary" if data else "primary"):
         with st.spinner("Running the backtest with TabPFN on this computer..."):
             ok, tail = run_script(["scripts/run_backtest.py", "--source", "instagram", "--save"])
         if not ok:
             st.error("The backtest failed.")
             st.code(tail)
-    data = load_json(BACKTESTS / "instagram.json")
+        data = load_json(BACKTESTS / "instagram.json")
     if data:
         render_backtest(data)
     else:
