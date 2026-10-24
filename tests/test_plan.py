@@ -16,7 +16,7 @@ def item() -> dict:
                  outline=["a", "b", "c"], reading_time_minutes=6, day="Friday", hour=9,
                  notes=["dropped tag 'x'"])
     return {"draft": d.model_dump(), "features": draft_features(d), "p_yes": 0.18,
-            "label": "Okay", "reason": "r", "what_if": [],
+            "label": "Too close to call", "reason": "r", "what_if": [],
             "when": {"utc": "Friday 09:00 UTC", "local": "Friday 14:00 PKT"}}
 
 
@@ -82,7 +82,7 @@ def test_palette_text_contrast_is_aa_and_config_matches():
     from slowpost.ui import PALETTE, contrast
 
     p = PALETTE
-    for kind in ("strong", "okay", "weak"):
+    for kind in ("strong", "close", "weak"):
         assert contrast(p[f"{kind}_fg"], p[f"{kind}_bg"]) >= 4.5, kind
     assert contrast(p["muted"], p["bg"]) >= 4.5 and contrast(p["muted"], p["panel"]) >= 4.5
     assert contrast(p["text"], p["bg"]) >= 4.5 and contrast("#ffffff", p["primary"]) >= 4.5
@@ -101,8 +101,9 @@ def test_css_builds_with_palette_variables():
 def test_badge_has_word_and_glyph():
     from slowpost.ui import badge
 
-    for label in ("Strong", "Okay", "Weak"):
-        assert label in badge(label) and "sp-" + label.lower() in badge(label)
+    for label in ("Strong", "Too close to call", "Weak"):
+        assert label in badge(label)
+        assert {"Strong": "sp-strong", "Too close to call": "sp-close", "Weak": "sp-weak"}[label] in badge(label)
 
 
 def test_progress_steps_follow_the_log():
@@ -136,7 +137,7 @@ def _scored(label: str, p: float) -> dict:
 def test_verdict_with_no_strong_names_the_best_candidate():
     from slowpost.plan import run_verdict
 
-    v = run_verdict([_scored("Okay", 0.15), _scored("Weak", 0.10)])
+    v = run_verdict([_scored("Too close to call", 0.15), _scored("Weak", 0.10)])
     assert v["text"] == "Nothing stands out this week. Go back to sleep." and v["n_strong"] == 0
     assert v["best"]["p_yes"] == 0.15
 
@@ -155,3 +156,22 @@ def test_csv_carries_the_verdict():
     items = [_scored("Weak", 0.1)]
     rows = list(csv.DictReader(io.StringIO(plan_csv(items, run_verdict(items)["text"]))))
     assert rows[0]["run_verdict"] == "Nothing stands out this week. Go back to sleep."
+
+
+def test_old_runs_with_okay_are_shown_with_the_new_name():
+    from slowpost.plan import normalize_labels
+
+    data = {"label_meaning": {"Okay": "x", "Weak": "y"}, "drafts": [{**item(), "label": "Okay"}],
+            "verdict": {"best": {"label": "Okay"}}}
+    out = normalize_labels(data)
+    assert set(out["label_meaning"]) == {"Too close to call", "Weak"}
+    assert out["drafts"][0]["label"] == "Too close to call"
+    assert out["verdict"]["best"]["label"] == "Too close to call"
+
+
+def test_csv_has_revision_columns():
+    it = {**item(), "revision": {"status": "revised version kept: 14% to 22%"},
+          "original": {"draft": {"title": "Old title"}, "p_yes": 0.14, "label": "Weak"}}
+    row = next(csv.DictReader(io.StringIO(plan_csv([it]))))
+    assert row["revision"].startswith("revised version kept") and row["original_title"] == "Old title"
+    assert row["original_p_yes"] == "0.140" and row["original_label"] == "Weak"

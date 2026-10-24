@@ -16,13 +16,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import psutil
 import streamlit as st
 import streamlit.components.v1 as components
 
 from slowpost import ui
-from slowpost.plan import apply_edits, plan_csv, run_verdict
+from slowpost.compare import NAMES
+from slowpost.plan import apply_edits, normalize_labels, plan_csv, run_verdict
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -124,6 +126,98 @@ def render_headline(r: dict) -> None:
             f'{r["ba_gap_ci"][1]:+.3f}.</div></div>', unsafe_allow_html=True)
 
 
+def _ci(v: float, ci, fmt: str = ".3f", suffix: str = "") -> str:
+    if ci is None:
+        return f"{v:{fmt}}{suffix}"
+    return f"{v:{fmt}}{suffix} ({ci[0]:{fmt}}{suffix} to {ci[1]:{fmt}}{suffix})"
+
+
+def render_compare(cmp: dict) -> None:
+    """TabPFN against simpler models on the identical split, and the random-split comparison."""
+    st.markdown(ui.section("Is TabPFN better than simpler models?"), unsafe_allow_html=True)
+    rows = []
+    for key, m in cmp["models"].items():
+        row = {"Model": NAMES[key],
+               "Balanced accuracy": _ci(m["balanced_accuracy"], m["ba_ci"]),
+               "ROC AUC": _ci(m["auc"], m["auc_ci"])}
+        for name in ("top10", "top20"):
+            if name in m:
+                v = m[name]
+                row[f"Top {name[3:]}% lift"] = _ci(v["lift"], v["lift_ci"], ".2f", "x")
+        rows.append(row)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    (st.warning if "does not clearly win" in cmp["winner"] or "ranks posts worse" in cmp["winner"]
+     else st.info)(cmp["winner"])
+    diffs = "; ".join(f"vs {NAMES[k].lower()}: AUC {d['auc_diff']:+.3f} (paired 95% interval "
+                      f"{d['auc_diff_ci'][0]:+.3f} to {d['auc_diff_ci'][1]:+.3f})"
+                      for k, d in cmp["tabpfn_minus"].items())
+    st.caption(f"TabPFN minus each model, {diffs}. Same 1,000 training posts and same test posts for "
+               "every model; the simple models use fixed ordinary settings, with no tuning.")
+    rs = cmp["random_split"]
+    top = rs.get("top10")
+    st.markdown(f"**TabPFN on a random 80/20 split (for comparison only):** balanced accuracy "
+                f"{_ci(rs['balanced_accuracy'], rs['ba_ci'])}, ROC AUC {_ci(rs['auc'], rs['auc_ci'])}"
+                + (f", top-10% lift {_ci(top['lift'], top['lift_ci'], '.2f', 'x')}" if top else "") + ".")
+    st.caption("The time-ordered split is the honest one: a plan is written before the week starts, "
+               "so the model must predict newer posts from older ones. A random split lets it learn "
+               "from posts published in the same weeks it is tested on.")
+
+
+def render_calibration(bins: list[dict]) -> None:
+    """Predicted vs actual share with reactions, equal-count bins of the test posts."""
+    st.markdown(ui.section("Calibration: when the model says 20%, what happens?"),
+                unsafe_allow_html=True)
+    df = pd.DataFrame([{"Predicted": b["mean_predicted"], "Actual": b["actual"],
+                        "Low": b["actual_ci"][0], "High": b["actual_ci"][1], "Posts": b["n"]}
+                       for b in bins])
+    top = float(max(df["High"].max(), df["Predicted"].max())) * 1.05
+    scale = alt.Scale(domain=[0, top])
+    base = alt.Chart(df)
+    line = alt.Chart(pd.DataFrame({"x": [0, top], "y": [0, top]})).mark_line(
+        strokeDash=[4, 4], color="#6b6252").encode(x=alt.X("x", scale=scale), y=alt.Y("y", scale=scale))
+    bars = base.mark_rule(color="#4a7a3c").encode(
+        x=alt.X("Predicted", scale=scale, axis=alt.Axis(format="%", title="Predicted chance of reactions")),
+        y=alt.Y("Low", scale=scale, axis=alt.Axis(format="%", title="Share that got reactions")),
+        y2="High")
+    pts = base.mark_circle(size=90, color="#4a7a3c").encode(
+        x="Predicted", y="Actual", tooltip=["Predicted", "Actual", "Low", "High", "Posts"])
+    st.altair_chart((line + bars + pts).properties(height=300), width="stretch")
+    total = sum(b["n"] for b in bins)
+    predicted = sum(b["mean_predicted"] * b["n"] for b in bins) / total
+    actual = sum(b["actual"] * b["n"] for b in bins) / total
+    st.caption(f"{len(bins)} equal-sized groups of test posts, from lowest to highest predicted chance; "
+               "bars are 95% intervals. Dots on the dashed line would mean the percentages can be "
+               f"taken at face value. On average the model predicted {predicted:.0%} and {actual:.0%} "
+               "really got reactions, so read the percentages as a ranking, not as exact odds.")
+
+
+def render_controls(c: dict) -> None:
+    """Does the cover-image gap hold within reading-time bands, and the reverse?"""
+    st.markdown(ui.section("Controlled check: are cover and reading time separate effects?"),
+                unsafe_allow_html=True)
+    st.caption(c["note"])
+    for key, title, exposed in (
+            ("cover_gap_within_reading_time", "Cover-image gap within each reading-time band", "cover"),
+            ("reading_time_gap_by_cover",
+             f"Reading-time gap ({c['median_reading_time']:.0f}+ minutes vs shorter) with and without a cover",
+             f"{c['median_reading_time']:.0f}+ min")):
+        block = c[key]
+        st.markdown(f"**{title}**")
+        rows = [{"Group": s["stratum"], f"Got reactions ({exposed})": f"{s['rate1']:.1%} (n={s['n1']})",
+                 "Got reactions (other)": f"{s['rate0']:.1%} (n={s['n0']})",
+                 "Gap": f"{s['diff']:+.1%} ({s['diff_ci'][0]:+.1%} to {s['diff_ci'][1]:+.1%})"
+                        + ("" if s["enough"] else " (small group)")}
+                for s in block["strata"]]
+        cr = block["crude"]
+        rows.append({"Group": "All posts (unadjusted)",
+                     f"Got reactions ({exposed})": f"{cr['rate1']:.1%} (n={cr['n1']})",
+                     "Got reactions (other)": f"{cr['rate0']:.1%} (n={cr['n0']})",
+                     "Gap": f"{cr['diff']:+.1%} ({cr['diff_ci'][0]:+.1%} to {cr['diff_ci'][1]:+.1%})"})
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.write(f"{block['statement']} Odds ratio: {block['crude_or']:.2f} unadjusted, "
+                 f"{block['mh_or']:.2f} adjusted ({block['mh_or_ci'][0]:.2f} to {block['mh_or_ci'][1]:.2f}).")
+
+
 def render_backtest(data: dict) -> None:
     r, sig = data["result"], data["signals"]
     render_headline(r)
@@ -159,6 +253,10 @@ def render_backtest(data: dict) -> None:
         st.markdown(ui.section("Lift: do the posts the model ranks highest do better?"), unsafe_allow_html=True)
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
+    if r.get("compare"):
+        render_compare(r["compare"])
+    if r.get("calibration"):
+        render_calibration(r["calibration"])
     st.markdown(ui.section("Signal summary: which features change the odds?"), unsafe_allow_html=True)
     st.write(sig["text"])
     st.caption(f"Share of '{sig['top_label']}' posts by group (overall {sig['overall_share']:.1%}). "
@@ -170,6 +268,8 @@ def render_backtest(data: dict) -> None:
             st.bar_chart(g["top_share"])
             st.dataframe(g.rename(columns={"n": "posts", "top_share": "share", "gap": "gap vs overall"}),
                          width="stretch")
+    if data.get("controls"):
+        render_controls(data["controls"])
 
 
 # ---------- pages ----------
@@ -310,42 +410,56 @@ def page_brief() -> None:
         st.error(st.session_state.start_msg)
 
 
-def rewrite_block(item: dict) -> None:
-    """Rewritten drafts: before and after side by side with the score change. Skips: one line."""
-    rw = item.get("rewrite")
-    if not rw:
+def revision_block(item: dict) -> None:
+    """One line on the card about the revision pass (Strong drafts are not revised)."""
+    rv = item.get("revision")
+    if not rv or not rv.get("attempted"):
+        if rv and rv.get("status", "").startswith(("could not", "revision")):
+            st.markdown(f'<div class="sp-rw"><b>Not revised.</b> {html.escape(rv["status"])}</div>',
+                        unsafe_allow_html=True)
         return
-    if not rw.get("draft"):
-        st.markdown(f'<div class="sp-rw"><b>Rewrite skipped.</b> '
-                    f'{html.escape(rw["status"].removeprefix("skipped: ").capitalize())}</div>',
+    if "p_revised" not in rv:
+        st.markdown(f'<div class="sp-rw"><b>Revision failed.</b> {html.escape(rv["status"])}</div>',
                     unsafe_allow_html=True)
-        return
-    st.markdown(f'<div class="sp-rw"><b>Rewritten once:</b> {rw["p_before"]:.0%} → '
-                f'{rw["p_after"]:.0%} chance of reactions ({html.escape(rw["label_after"])}). '
-                f'Compared below the week.</div>', unsafe_allow_html=True)
+    elif rv["kept"]:
+        move = ("" if rv["label_original"] == rv["label_revised"] else
+                f" ({html.escape(rv['label_original'])} → {html.escape(rv['label_revised'])})")
+        st.markdown(f'<div class="sp-rw"><b>Revised once:</b> {rv["p_original"]:.0%} → '
+                    f'{rv["p_revised"]:.0%}{move}. This is the revised draft. Compared below the '
+                    f'week.</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="sp-rw"><b>Revision tried, not kept:</b> it scored '
+                    f'{rv["p_revised"]:.0%}, not above {rv["p_original"]:.0%}. The original stays.'
+                    f'</div>', unsafe_allow_html=True)
 
 
-def rewrite_compare(items: list[dict]) -> None:
-    """Full-width before/after for rewritten drafts, side by side with the score change."""
-    done = [it for it in items if (it.get("rewrite") or {}).get("draft")]
+def revision_compare(items: list[dict], summary: dict | None) -> None:
+    """Full-width before/after for every revised draft, side by side with the score change."""
+    done = [it for it in items if (it.get("revision") or {}).get("revised_draft")]
     if not done:
         return
-    st.markdown(ui.section("Rewrites: before → after"), unsafe_allow_html=True)
+    st.markdown(ui.section("Revisions: before → after"), unsafe_allow_html=True)
+    if summary:
+        st.write(f"{summary['kept']} of {summary['attempted']} revisions were kept; "
+                 f"{summary['changed_band']} changed band; strong drafts "
+                 f"{summary['strong_before']} → {summary['strong_after']}.")
+    st.caption("Gemma writes the revision; the score comes from TabPFN. A revision is kept only if "
+               "TabPFN scores it higher than the original.")
     for it in done:
-        rw = it["rewrite"]
+        rv = it["revision"]
+        before = it["original"]["draft"] if it.get("original") else it["draft"]
         with st.container(border=True):
-            st.markdown(f'**{it["when"]["utc"]}** · {rw["p_before"]:.0%} → {rw["p_after"]:.0%} '
-                        f'chance of reactions')
+            st.markdown(f'**{it["when"]["utc"]}** · {rv["p_original"]:.0%} → {rv["p_revised"]:.0%} '
+                        f'chance of reactions' + ("" if rv["kept"] else " (revision not kept)"))
             a, b = st.columns(2)
-            for col, head, p, dr, label in ((a, "Before", rw["p_before"], it["draft"], it["label"]),
-                                            (b, "After", rw["p_after"], rw["draft"], rw["label_after"])):
+            for col, head, p, dr, label in (
+                    (a, "Before", rv["p_original"], before, rv["label_original"]),
+                    (b, "After", rv["p_revised"], rv["revised_draft"], rv["label_revised"])):
                 col.markdown(f'{head} · {p:.0%} {ui.badge(label)}', unsafe_allow_html=True)
                 col.markdown(f'<div class="sp-title">{html.escape(dr["title"])}</div>',
                              unsafe_allow_html=True)
-                col.caption(f"Tags: {', '.join(dr['tags'])}  \nCover: {dr['cover_idea']}")
-            st.caption("Aimed at: " + rw["change"] + ". "
-                       + ("The score went up." if rw["improved"] else
-                          "The score did not clearly improve."))
+                col.caption(f"Tags: {', '.join(dr['tags'])}  \nCover: {dr['cover_idea']}  \n"
+                            f"Reading time: {dr['reading_time_minutes']} min")
 
 
 def show_card(run: Path, i: int, item: dict) -> dict:
@@ -377,7 +491,7 @@ def show_card(run: Path, i: int, item: dict) -> dict:
                 st.error(f"These edits can't be used yet ({err}). The original draft is kept.")
             elif edited.get("edited"):
                 st.info("Edited. The score is for the original draft; edits are not rescored.")
-        rewrite_block(item)
+        revision_block(item)
         with st.expander("Tags, cover, outline (edit)"):
             st.text_input("Title", d["title"], key=f"t-{key}")
             st.text_input("Tags (comma separated, up to 4)", ",".join(d["tags"]), key=f"g-{key}")
@@ -396,13 +510,14 @@ def show_card(run: Path, i: int, item: dict) -> dict:
             st.markdown("**Backed by the data** (the signal summary shows a clear difference)")
             if sup:
                 for w in sup:
-                    st.write(f"{w['delta']:+.1%} points: {w['text']} ({w['p']:.0%})")
+                    st.write(w.get("sentence") or f"{w['delta']:+.1%} points: {w['text']} ({w['p']:.0%})")
             else:
                 st.caption("No what-if feature is backed by the data.")
             st.markdown("**The model's guess**")
             st.caption("The data shows no clear difference for these, so treat them as guesses.")
             for w in rest:
-                st.markdown(f":gray[{w['delta']:+.1%} points: {w['text']} ({w['p']:.0%})]")
+                st.markdown(":gray[" + (w.get("sentence")
+                                         or f"{w['delta']:+.1%} points: {w['text']} ({w['p']:.0%})") + "]")
     return edited
 
 
@@ -469,7 +584,7 @@ def page_plan() -> None:
     if not run:
         st.info("No plan yet. Write a brief in step 3 and start a run.")
         return
-    data = load_json(run / "drafts.json")
+    data = normalize_labels(load_json(run / "drafts.json"))
     verdict = data.get("verdict") or run_verdict(data["drafts"])
     verdict_banner(verdict)
     st.caption(f"Run {run.name}. Brief: {data['brief']}")
@@ -481,7 +596,7 @@ def page_plan() -> None:
         for col, i in zip(cols, range(start, min(start + 2, len(items))), strict=False):
             with col:
                 edited.append(show_card(run, i, items[i]))
-    rewrite_compare(items)
+    revision_compare(items, data.get("revision_summary"))
     if data["failed_slots"]:
         st.warning("Some slots could not be drafted: " + "; ".join(data["failed_slots"]))
     st.download_button("Download plan.csv", plan_csv(edited, verdict["text"]), file_name="plan.csv",

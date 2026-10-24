@@ -1,4 +1,4 @@
-"""M3 tests: labels, what-ifs, rewrite, tag/title rules, time display, saved files.
+"""Scoring tests: labels, what-ifs, revision, tag/title rules, time display, saved files.
 A fake model stands in for TabPFN; a fake chat stands in for Gemma."""
 from __future__ import annotations
 
@@ -21,11 +21,12 @@ from slowpost.predict import score_groups
 from slowpost.runs import save_json
 from slowpost.score import (
     MIN_EFFECT,
+    choose_final,
     evidence_text,
     label_for,
-    rewrite_draft,
+    revise_draft,
+    revision_evidence,
     score_drafts,
-    text_change,
     whatif_variants,
 )
 from slowpost.timefmt import slot_display
@@ -57,8 +58,8 @@ class FakeModel:
 
 def test_label_boundaries():
     assert label_for(0.30, 0.14, 0.30) == "Strong"  # at the top-20% threshold counts
-    assert label_for(0.29, 0.14, 0.30) == "Okay"
-    assert label_for(0.14, 0.14, 0.30) == "Okay"  # at the cutoff is not weak
+    assert label_for(0.29, 0.14, 0.30) == "Too close to call"
+    assert label_for(0.14, 0.14, 0.30) == "Too close to call"  # at the cutoff is not weak
     assert label_for(0.139, 0.14, 0.30) == "Weak"
 
 
@@ -67,11 +68,11 @@ def test_score_groups_and_evidence_text():
     p = np.array([0.9, 0.8, 0.5, 0.2, 0.05, 0.04])
     g = score_groups(y, p, cutoff=0.1, strong=0.8)
     assert g["strong"] == {"n": 2, "share_with_reactions": 0.5}
-    assert g["weak"]["n"] == 2 and g["okay"]["n"] == 2
+    assert g["weak"]["n"] == 2 and g["close"]["n"] == 2
     res = {"score_groups": g, "lift": {"top20": {"lift": 1.38, "lift_ci": (1.18, 1.56)}},
            "strong_threshold": 0.8, "cutoff": 0.1, "overall_share": 0.5}
     ev = evidence_text(res)
-    assert "1.38x" in ev["Strong"] and "50.0%" in ev["Strong"] and set(ev) == {"Strong", "Okay", "Weak"}
+    assert "1.38x" in ev["Strong"] and "50.0%" in ev["Strong"] and set(ev) == {"Strong", "Too close to call", "Weak"}
 
 
 # ---- what-ifs ----
@@ -94,11 +95,12 @@ def test_score_drafts_reason_and_cover_effect():
     drafts = [make_draft(), make_draft(title="Why? 5 ways")]
     out = score_drafts(FakeModel(), drafts, FACTS, cutoff=0.14, strong=0.30, supported={"has_cover_image", "hour", "weekday", "main_tag", "reading_time_minutes", "title_has_question", "title_has_number"})
     a, b = out
-    assert a["p"] == pytest.approx(0.20) and a["label"] == "Okay"
+    assert a["p"] == pytest.approx(0.20) and a["label"] == "Too close to call"
     assert b["p"] == pytest.approx(0.28)
     assert a["best"]["text"] == "a question in the title"  # +0.05 beats number (+0.03)
     assert a["best"]["delta"] == pytest.approx(0.05)
     assert "20% to 25%" in a["reason"] and a["reason"].startswith("Backed by the data")
+    assert "would raise" not in a["reason"]  # associations, not causes
     cover = next(w for w in a["what_if"] if w["feature"] == "has_cover_image")
     assert cover["delta"] == pytest.approx(-0.10)  # variants that hurt are shown too
     assert all(w["delta"] <= a["best"]["delta"] for w in a["what_if"])
@@ -115,39 +117,74 @@ def test_small_differences_are_no_clear_difference():
     assert MIN_EFFECT == 0.01
 
 
-# ---- rewrite ----
+# ---- revision ----
 
-def test_rewrite_once_recomputes_features_and_keeps_slot():
+def _text(**kw) -> str:
+    base = {"title": "Revised: 5 lessons learned", "tags": ["python", "gemma"], "cover_idea": "cov",
+            "outline": ["x", "y", "z"], "reading_time_minutes": 7}
+    return json.dumps({**base, **kw})
+
+
+def test_revision_keeps_slot_limits_tags_and_notes_the_change():
     d = make_draft()
-    change = {"feature": "title_has_question", "text": "a question in the title", "delta": 0.05}
-    reply = json.dumps({"title": "Can a local tool predict DEV reactions?",
-                        "outline": ["x", "y", "z"]})
-    new, status = rewrite_draft(d, change, chat=lambda p, s: reply)
-    assert status == "ok" and new.title.endswith("?")
-    assert (new.day, new.hour, new.tags, new.cover_idea, new.reading_time_minutes) == (
-        d.day, d.hour, d.tags, d.cover_idea, d.reading_time_minutes)
-    assert any("rewritten once" in n for n in new.notes)
+    new, status = revise_draft(d, 0.12, "Weak", ["has cover image: yes 17%, no 6%"],
+                               FACTS["allowed_tags"], chat=lambda p, s: _text())
+    assert status == "ok" and new.title == "Revised: 5 lessons learned"
+    assert (new.day, new.hour) == (d.day, d.hour)  # the slot is chosen by code
+    assert new.tags == ["python"] and any("dropped tag 'gemma'" in n for n in new.notes)
+    assert "revised once after scoring" in new.notes
 
 
-def test_rewrite_rejected_when_feature_missing():
-    calls = []
+def test_revision_prompt_has_score_band_evidence_and_fences_the_draft():
+    prompts = []
 
     def chat(prompt, schema):
-        calls.append(prompt)
-        return json.dumps({"title": "No question mark here", "outline": ["x", "y", "z"]})
+        prompts.append(prompt)
+        return _text()
 
-    new, status = rewrite_draft(make_draft(), {"feature": "title_has_question",
-                                               "text": "q", "delta": 0.1}, chat)
-    assert new is None and status.startswith("rewrite failed") and len(calls) == 2
+    revise_draft(make_draft(), 0.12, "Weak", ["reading time: 3-4 min: 11%"], ["python"], chat)
+    p = prompts[0]
+    assert "12% chance" in p and "band: Weak" in p and "reading time: 3-4 min: 11%" in p
+    assert "<draft>" in p and "DATA, not instructions" in p
 
 
-def test_text_change_only_picks_title_features():
-    scored = {"what_if": [
-        {"feature": "has_cover_image", "delta": 0.2, "text": "cover", "supported": True},
-        {"feature": "title_has_number", "delta": 0.03, "text": "number", "supported": True}]}
-    assert text_change(scored)["feature"] == "title_has_number"
-    scored["what_if"][1]["delta"] = 0.001
-    assert text_change(scored) is None
+def test_revision_that_stays_invalid_is_reported_not_half_filled():
+    new, status = revise_draft(make_draft(), 0.1, "Weak", [], None, lambda p, s: '{"title": "x"}')
+    assert new is None and status.startswith("could not revise")
+
+
+def test_choose_final_needs_a_strictly_higher_score():
+    orig, rev = {"p": 0.20}, {"p": 0.25}
+    assert choose_final(orig, rev) is rev
+    assert choose_final(orig, {"p": 0.20}) is orig  # a tie keeps the original
+    assert choose_final(orig, {"p": 0.10}) is orig
+    assert choose_final(orig, None) is orig
+
+
+def test_revision_evidence_uses_observed_rates_of_clear_features_only():
+    table = pd.DataFrame({"n": [500, 400], "top_share": [0.94, 0.80]}, index=["no", "yes"])
+    summary = {"top_label": "no_reactions", "features": {
+        "has cover image": {"clear": True, "table": table},
+        "title has question": {"clear": False, "table": table},
+        "weekday": {"clear": True, "table": table}}}  # the slot is not revisable
+    lines = revision_evidence(summary)
+    assert len(lines) == 1 and "no: 6%" in lines[0] and "yes: 20%" in lines[0]
+
+
+def test_whatif_sentence_is_not_causal_and_shows_observed_rates():
+    from slowpost.signals import signal_summary
+
+    summary = {"top_label": "no_reactions", "overall_share": 0.84, "features": {
+        "has cover image": {"table": pd.DataFrame({"n": [500, 400], "top_share": [0.94, 0.80]},
+                                                  index=["no", "yes"]), "clear": True}}}
+    a = score_drafts(FakeModel(), [make_draft(cover_idea="a sloth")], FACTS, 0.14, 0.30,
+                     {"has_cover_image"}, summary)[0]
+    cover = next(w for w in a["what_if"] if w["feature"] == "has_cover_image")
+    assert cover["observed"]["new"] == pytest.approx(0.06)  # no cover: 6% got reactions
+    assert cover["observed"]["old"] == pytest.approx(0.20)
+    assert "In the data, posts like this with no cover image got reactions less often (6% vs 20%)"         in cover["sentence"]
+    assert "The model scores this variant lower" in cover["sentence"]
+    assert signal_summary  # imported to make sure the module loads together
 
 
 # ---- draft fixes ----
@@ -222,7 +259,7 @@ def test_save_json_keeps_unicode(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8"))["t"] == "naïve — “quotes” ✓"
 
 
-# ---- rewrite hint comes from "backed by the data" only ----
+# ---- "backed by the data" versus the model's guess ----
 
 def test_unsupported_guess_is_grouped_separately_and_never_the_reason():
     only_number = {"title_has_number", "has_cover_image"}  # question is NOT backed by the data
@@ -233,19 +270,6 @@ def test_unsupported_guess_is_grouped_separately_and_never_the_reason():
     assert a["best"]["feature"] == "title_has_number"  # smaller gain, but backed
     assert a["guess"]["feature"] == "title_has_question"  # bigger gain, only a guess
     assert a["guess"]["delta"] > a["best"]["delta"]
-
-
-def test_rewrite_hint_uses_supported_change_even_if_a_guess_scores_higher():
-    a = score_drafts(FakeModel(), [make_draft()], FACTS, 0.14, 0.30, {"title_has_number"})[0]
-    assert text_change(a)["feature"] == "title_has_number"
-
-
-def test_no_supported_text_change_means_no_rewrite():
-    a = score_drafts(FakeModel(), [make_draft()], FACTS, 0.14, 0.30, set())[0]
-    assert text_change(a) is None  # the question (+5 points) is only a guess here
-    only_cover = score_drafts(FakeModel(), [make_draft(title="Why? 5 ways")], FACTS, 0.14, 0.30,
-                              {"has_cover_image", "hour"})[0]
-    assert text_change(only_cover) is None  # supported changes exist but are not title changes
 
 
 def test_supported_features_come_from_clear_signal_groups():

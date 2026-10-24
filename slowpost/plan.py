@@ -8,7 +8,25 @@ from .drafts import DevDraft, DraftText, draft_features
 
 PLAN_COLUMNS = ["run_verdict", "when_utc", "when_local", "title", "tags", "tag_notes", "cover_idea", "outline",
                 "reading_time_minutes", "p_yes", "label", "edited", "best_change",
-                "rewrite_title", "rewrite_p_yes", "rewrite_label", "rewrite_note"]
+                "revision", "original_title", "original_p_yes", "original_label"]
+
+LEGACY_LABELS = {"Okay": "Too close to call"}  # runs saved before the rename
+
+
+def normalize_labels(data: dict) -> dict:
+    """Saved runs from before the rename say "Okay"; show them as "Too close to call"."""
+    fix = lambda label: LEGACY_LABELS.get(label, label)
+    data["label_meaning"] = {fix(k): v for k, v in data["label_meaning"].items()}
+    for it in data["drafts"]:
+        it["label"] = fix(it["label"])
+        if it.get("original"):
+            it["original"]["label"] = fix(it["original"]["label"])
+        for k in ("label_original", "label_revised"):
+            if (it.get("revision") or {}).get(k):
+                it["revision"][k] = fix(it["revision"][k])
+    if data.get("verdict", {}).get("best"):
+        data["verdict"]["best"]["label"] = fix(data["verdict"]["best"]["label"])
+    return data
 
 
 def apply_edits(item: dict, edit: dict | None) -> tuple[dict, str | None]:
@@ -56,8 +74,7 @@ def plan_csv(items: list[dict], verdict: str | None = None) -> str:
     w = csv.DictWriter(buf, fieldnames=PLAN_COLUMNS, lineterminator="\n")
     w.writeheader()
     for it in items:
-        d, rw = it["draft"], it.get("rewrite") or {}
-        rd = rw.get("draft") or {}
+        d, rv, orig = it["draft"], it.get("revision") or {}, it.get("original") or {}
         w.writerow({
             "run_verdict": verdict, "when_utc": it["when"]["utc"], "when_local": it["when"]["local"],
             "title": d["title"], "tags": ",".join(d["tags"]), "tag_notes": "; ".join(d["notes"]),
@@ -65,8 +82,9 @@ def plan_csv(items: list[dict], verdict: str | None = None) -> str:
             "reading_time_minutes": d["reading_time_minutes"], "p_yes": f"{it['p_yes']:.3f}",
             "label": it["label"] + (" (score is for the original draft)" if it.get("edited") else ""),
             "edited": "yes" if it.get("edited") else "no", "best_change": it["reason"],
-            "rewrite_title": rd.get("title", ""),
-            "rewrite_p_yes": f"{rw['p_after']:.3f}" if "p_after" in rw else "",
-            "rewrite_label": rw.get("label_after", ""), "rewrite_note": rw.get("status", ""),
+            "revision": rv.get("status", ""),
+            "original_title": (orig.get("draft") or {}).get("title", ""),
+            "original_p_yes": f"{orig['p_yes']:.3f}" if "p_yes" in orig else "",
+            "original_label": orig.get("label", ""),
         })
     return buf.getvalue()

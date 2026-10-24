@@ -19,11 +19,13 @@ PALETTE = {
     "border": "#dcd3bf",
     # Label colours: (text, background). Always shown together with the word.
     "strong_fg": "#2d5a22", "strong_bg": "#e1eed9",
-    "okay_fg": "#7a4a08", "okay_bg": "#f8ebcf",
+    "close_fg": "#7a4a08", "close_bg": "#f8ebcf",
     "weak_fg": "#8c2b23", "weak_bg": "#f7e0dc",
 }
 
-LABEL_GLYPH = {"Strong": "▲", "Okay": "●", "Weak": "▼"}  # a second cue besides colour
+LABEL_GLYPH = {"Strong": "▲", "Too close to call": "●", "Weak": "▼"}  # a second cue besides colour
+LABEL_CLASS = {"Strong": "strong", "Too close to call": "close", "Weak": "weak"}
+LEGACY_LABELS = {"Okay": "Too close to call"}  # runs saved before the rename
 
 CSS = """
 <style>
@@ -77,7 +79,7 @@ h1, h2, h3 { letter-spacing: -.01em; }
 .sp-badge { display: inline-block; padding: 2px 10px; border-radius: 999px;
   font-size: var(--t-help); font-weight: 600; white-space: nowrap; }
 .sp-strong { color: var(--strong_fg); background: var(--strong_bg); }
-.sp-okay { color: var(--okay_fg); background: var(--okay_bg); }
+.sp-close { color: var(--close_fg); background: var(--close_bg); }
 .sp-weak { color: var(--weak_fg); background: var(--weak_bg); }
 
 /* week cards */
@@ -105,7 +107,7 @@ h1, h2, h3 { letter-spacing: -.01em; }
 /* run verdict */
 .sp-verdict { background: var(--strong_bg); color: var(--strong_fg); border-radius: var(--radius);
   padding: var(--s4) var(--s5); margin: 0 0 var(--s4); }
-.sp-verdict-none { background: var(--okay_bg); color: var(--okay_fg); }
+.sp-verdict-none { background: var(--close_bg); color: var(--close_fg); }
 .sp-verdict-head { font-size: var(--t-section); font-weight: 700; }
 
 /* backtest headline */
@@ -123,7 +125,7 @@ h1, h2, h3 { letter-spacing: -.01em; }
 .sp-steps .sp-time { margin-left: auto; color: var(--muted); font-size: var(--t-help); }
 .sp-steps .sp-done .sp-mark { color: var(--strong_fg); }
 .sp-steps .sp-active { font-weight: 700; }
-.sp-steps .sp-active .sp-mark { color: var(--okay_fg); }
+.sp-steps .sp-active .sp-mark { color: var(--close_fg); }
 .sp-steps .sp-wait { color: var(--muted); }
 .sp-elapsed { font-size: var(--t-section); font-weight: 700; margin: 0; }
 .sp-sloth { display: inline-block; animation: sp-sway 6s ease-in-out infinite;
@@ -142,8 +144,9 @@ def css() -> str:
 
 def badge(label: str) -> str:
     """HTML for a label badge: glyph + word + colour (never colour alone)."""
-    kind = label.lower()
-    return f'<span class="sp-badge sp-{kind}">{LABEL_GLYPH[label]} {html.escape(label)}</span>'
+    label = LEGACY_LABELS.get(label, label)
+    return (f'<span class="sp-badge sp-{LABEL_CLASS[label]}">{LABEL_GLYPH[label]} '
+            f'{html.escape(label)}</span>')
 
 
 def _luminance(hex_colour: str) -> float:
@@ -164,7 +167,7 @@ STEPS = [
     ("Drafting with Gemma", "1 drafting"),
     ("Backtest with TabPFN", "2a backtest"),
     ("Scoring drafts with TabPFN", "2b scoring"),
-    ("Rewriting weak drafts", None),  # done when the run is saved
+    ("Revising drafts", None),  # done when the run is saved
 ]
 _DRAFTED = re.compile(r"Drafted (\d+)/(\d+)")
 _TIME = re.compile(r"\]\s*(.+?): ([\d.]+) s \(")
@@ -174,7 +177,7 @@ def parse_progress(log: str) -> list[dict]:
     """Steps with state 'done' | 'active' | 'wait' and seconds (when known), from the run log.
 
     The log only reports a step when it finishes, so the first step without a finish line is
-    'active'. Rewriting (and the rescore after it) counts as done when the run is saved.
+    'active'. Revising (and the rescore after it) counts as done when the run is saved.
     """
     seconds: dict[str, float] = {}
     for m in _TIME.finditer(log):
@@ -183,7 +186,7 @@ def parse_progress(log: str) -> list[dict]:
     out, found_active = [], False
     for name, prefix in STEPS:
         if prefix is None:
-            took = [v for k, v in seconds.items() if k.startswith(("3 rewriting", "4 rescoring"))]
+            took = [v for k, v in seconds.items() if k.startswith(("3 revising", "4 rescoring"))]
             done, secs = saved, (sum(took) if took else None)
         else:
             hit = next((k for k in seconds if k.startswith(prefix)), None)

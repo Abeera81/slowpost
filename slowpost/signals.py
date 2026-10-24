@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2_contingency
 
-from .features import groupings
+from .features import _blocks, groupings
 from .profiles import Profile
 
 ALPHA = 0.05
@@ -92,3 +92,47 @@ def to_jsonable(summary: dict) -> dict:
                                "gap": float(r["gap"])} for g, r in v["table"].iterrows()]}
             for name, v in summary["features"].items()},
     }
+
+
+_DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _group_of(feature: str, value: object) -> tuple[str, str] | None:
+    """(signal-summary group name, group value) that holds a feature value, as in `groupings`."""
+    if feature in ("has_cover_image", "title_has_question", "title_has_number"):
+        return SIGNAL_FOR_FEATURE[feature], "yes" if int(value) else "no"
+    if feature == "weekday":
+        return "weekday", _DAY_NAMES[int(value)]
+    if feature == "hour":
+        return "hour (4h blocks, UTC)", str(_blocks(pd.Series([int(value)])).iloc[0])
+    if feature == "reading_time_minutes":
+        v = int(value)
+        band = "0-2 min" if v <= 2 else "3-4 min" if v <= 4 else "5-7 min" if v <= 7 else "8+ min"
+        return "reading time", band
+    if feature == "main_tag":
+        return "main tag", str(value)
+    return None
+
+
+def observed_rates(summary: dict, feature: str, feats: dict, overrides: dict) -> dict | None:
+    """Share of past posts that got reactions in the group of the changed value ("new") and in
+    the group of the draft's current value ("old"). None when the history has no such group."""
+    if feature not in overrides:
+        return None
+    new, old = _group_of(feature, overrides[feature]), _group_of(feature, feats[feature])
+    if new is None or old is None or new[0] not in summary["features"]:
+        return None
+    table = summary["features"][new[0]]["table"]
+    names = [new[1], old[1]]
+    if feature == "main_tag":  # tags outside the top 10 are grouped as "other"
+        names = [n if n in table.index else "other" for n in names]
+    if any(n not in table.index for n in names):
+        return None
+    top_is_none = "no_reaction" in str(summary["top_label"])  # DEV: the top label is "no_reactions"
+
+    def rate(group: str) -> float:
+        share = float(table.loc[group, "top_share"])
+        return 1 - share if top_is_none else share
+
+    return {"new": rate(names[0]), "old": rate(names[1]),
+            "n_new": int(table.loc[names[0], "n"]), "n_old": int(table.loc[names[1], "n"])}
