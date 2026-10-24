@@ -19,6 +19,7 @@ from pathlib import Path
 import pandas as pd
 import psutil
 import streamlit as st
+import streamlit.components.v1 as components
 
 from slowpost import ui
 from slowpost.plan import apply_edits, plan_csv
@@ -500,6 +501,13 @@ def page_instagram() -> None:
 
 def go(page: str) -> None:
     st.session_state.nav = page
+    st.session_state.scroll_top = True  # a new page should open at its title
+
+
+def scroll_to_top() -> None:
+    if st.session_state.pop("scroll_top", False):
+        components.html("<script>const m = window.parent.document.querySelector("
+                        "'[data-testid=\"stMain\"]'); if (m) m.scrollTo(0, 0);</script>", height=0)
 
 
 def sidebar_nav() -> str:
@@ -522,5 +530,6 @@ def sidebar_nav() -> str:
 
 st.markdown(ui.css(), unsafe_allow_html=True)
 page = sidebar_nav()
+scroll_to_top()
 {"0 Home": page_home, "1 Data": page_data, "2 Backtest": page_backtest, "3 Brief": page_brief, "4 Plan": page_plan,
  SECONDARY[0]: page_instagram}[page]()
