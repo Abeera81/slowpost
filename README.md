@@ -98,7 +98,7 @@ ruff check .
 The Brief page can schedule one run for later ("Schedule for tonight"). Nothing is created until you tick the box and click "Create scheduled task"; the page shows the exact command first. The brief is saved in `data/scheduled/<task>.json` (git-ignored) so no free text has to be quoted on the command line. For example, for 02:00 on 26 October 2026 (the paths are yours; the app prints the exact command for the time you pick):
 
 ```bash
-schtasks /Create /SC ONCE /TN SlowPost-20261026-0200 /TR "\"D:Hackathonslowpost.venvScriptspython.exe\" \"D:\Hackathon\slowpost\scripts\run_overnight.py\" --job \"D:\Hackathon\slowpost\data\scheduled\SlowPost-20261026-0200.json\"" /ST 02:00 /SD 26/10/2026 /F
+schtasks /Create /SC ONCE /TN SlowPost-20261026-0200 /TR "\"D:\Hackathon\slowpost\.venv\Scripts\python.exe\" \"D:\Hackathon\slowpost\scripts\run_overnight.py\" --job \"D:\Hackathon\slowpost\data\scheduled\SlowPost-20261026-0200.json\"" /ST 02:00 /SD 26/10/2026 /F
 ```
 
 The date must be written the way Windows shows short dates (for example `26/10/2026` or `10/26/2026`); the app reads the pattern from your regional settings. To remove a task: `schtasks /Delete /TN SlowPost-YYYYMMDD-HHMM /F`. The computer must be on and not asleep, you must be signed in, and Ollama must be running at that time. In the morning the Plan page opens the latest finished run with its verdict ("Good morning"); a scheduled run writes the same files as a run started from the app.
