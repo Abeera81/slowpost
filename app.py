@@ -714,12 +714,16 @@ def go(page: str) -> None:
 
 
 def scroll_to_top() -> None:
+    """Open a new page at its title. The script differs on every call (a counter), because an
+    identical script would not be run again by the browser, and it retries for a second while
+    the new page finishes drawing."""
     if st.session_state.pop("scroll_top", False):
-        # Scroll again after the new page has drawn, because it is taller than the old scroll
-        # position allows for a moment.
-        components.html("<script>const go = () => { const m = window.parent.document.querySelector("
-                        "'[data-testid=\"stMain\"]'); if (m) m.scrollTo(0, 0); };"
-                        "go(); setTimeout(go, 150); setTimeout(go, 600);</script>", height=0)
+        st.session_state.scroll_count = st.session_state.get("scroll_count", 0) + 1
+        components.html(
+            "<script>/* " + str(st.session_state.scroll_count) + " */"
+            "const go = () => { const m = window.parent.document.querySelector("
+            "'[data-testid=\"stMain\"]'); if (m) m.scrollTo(0, 0); };"
+            "go(); [100, 300, 700, 1200].forEach((t) => setTimeout(go, t));</script>", height=0)
 
 
 def sidebar_nav() -> str:

@@ -1,5 +1,7 @@
 # Technical Design Document: Slow Post MVP
 
+> **Changes since this document.** This document was written before the build and is kept as the original plan. The app has changed since: DEV posts are the demo source and the Instagram sample is a no-signal test case; the backtest uses a newest-7-days test window and a probability cutoff; drafts get one Gemma revision (kept only if TabPFN scores it higher) instead of a weak-only rewrite; there is a run verdict, baseline models, calibration, controlled checks, and optional Task Scheduler overnight mode. Where this document and the code disagree, the code wins. Every analysis choice and when it was made is in [`analysis-log.md`](analysis-log.md); the running project history is in [`MEMORY.md`](../MEMORY.md).
+
 ## Overview
 
 Slow Post is a local Python app. It reads a past-posts file for a chosen source (real DEV posts fetched from DEV's public API, or the Kaggle Instagram CSV), runs a time-ordered backtest with TabPFN, has a local Gemma model (via Ollama) draft next week's 7 posts, scores each draft with TabPFN, rewrites weak drafts once, and shows a week calendar with a CSV download. Everything runs on one Windows laptop; no data leaves it.

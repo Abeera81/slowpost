@@ -1,5 +1,7 @@
 # Product Requirements Document: Slow Post MVP
 
+> **Changes since this document.** This document was written before the build and is kept as the original plan. The app has changed since: DEV posts are the demo source and the Instagram sample is a no-signal test case; the backtest uses a newest-7-days test window and a probability cutoff; drafts get one Gemma revision (kept only if TabPFN scores it higher) instead of a weak-only rewrite; there is a run verdict, baseline models, calibration, controlled checks, and optional Task Scheduler overnight mode. Where this document and the code disagree, the code wins. Every analysis choice and when it was made is in [`analysis-log.md`](analysis-log.md); the running project history is in [`MEMORY.md`](../MEMORY.md).
+
 ## Overview
 
 **Product Name:** Slow Post
