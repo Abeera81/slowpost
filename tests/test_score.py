@@ -332,3 +332,28 @@ def test_a_change_the_history_contradicts_is_a_guess_not_backed_by_the_data():
     assert cover["conflict"] is True and cover["supported"] is False
     assert cover["sentence"].startswith("The data points the other way")
     assert a["best"] is None  # a contradicted change can never be the reason
+
+
+def test_whatif_sentence_decimals_and_about_the_same():
+    from slowpost.score import whatif_sentence
+
+    base = {"what": "a Thursday post", "p": 0.223, "delta": 0.004, "supported": True}
+    # Rates that round to the same whole number get one decimal, and a gap under one point
+    # is "about the same", not "more/less often".
+    s = whatif_sentence({**base, "observed": {"new": 0.162, "old": 0.159}}, 0.219)
+    assert "16.2% vs 15.9%" in s and "about the same rate" in s
+    assert "more often" not in s and "less often" not in s
+    assert "(21.9% to 22.3%)" in s  # the model's own numbers get the same treatment
+    # A real gap keeps whole numbers and the direction word.
+    s = whatif_sentence({**base, "p": 0.28, "delta": 0.06,
+                         "observed": {"new": 0.20, "old": 0.12}}, 0.22)
+    assert "20% vs 12%" in s and "more often" in s and "(22% to 28%)" in s
+    # Both round to 16%, the gap is just under a point: one decimal and "about the same".
+    s = whatif_sentence({**base, "observed": {"new": 0.1649, "old": 0.1551}}, 0.22)
+    assert "about the same rate" in s and "16.5% vs 15.5%" in s
+    # Unsupported and contradicted wording use the same formatting.
+    s = whatif_sentence({**base, "supported": False, "observed": {"new": 0.162, "old": 0.159}}, 0.22)
+    assert "no clear difference" in s and "16.2% vs 15.9%" in s
+    s = whatif_sentence({**base, "supported": False, "conflict": True,
+                         "observed": {"new": 0.12, "old": 0.14}}, 0.22)
+    assert s.startswith("The data points the other way") and "less often (12% vs 14%)" in s

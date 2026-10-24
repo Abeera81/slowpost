@@ -103,25 +103,42 @@ def whatif_variants(feats: dict, facts: dict | None) -> list[dict]:
     return out
 
 
+def _pair(a: float, b: float) -> tuple[str, str]:
+    """Two shares as percentages: whole numbers, or one decimal when they would round to the
+    same whole number (so "16% vs 16%" becomes "16.2% vs 15.9%")."""
+    digits = 1 if round(a * 100) == round(b * 100) else 0
+    return f"{a:.{digits}%}", f"{b:.{digits}%}"
+
+
+SAME_RATE = 0.01  # a gap under one percentage point is "about the same"
+
+
 def whatif_sentence(w: dict, p0: float) -> str:
     """Plain, non-causal wording: what the history shows, then what the model scores."""
     higher = "higher" if w["delta"] > 0 else "lower"
-    model = f"The model scores this variant {higher} ({p0:.0%} to {w['p']:.0%})."
+    m0, m1 = _pair(p0, w["p"])
+    model = f"The model scores this variant {higher} ({m0} to {m1})."
     obs = w.get("observed")
     if obs is None:
         return model
     a, b = obs["new"], obs["old"]
+    sa, sb = _pair(a, b)
+    if abs(a - b) < SAME_RATE:
+        if not w["supported"] and not w.get("conflict"):
+            return (f"The data shows no clear difference for this feature ({sa} vs {sb} got "
+                    f"reactions). {model}")
+        return (f"In the data, posts like this with {w['what']} got reactions at about the same "
+                f"rate ({sa} vs {sb}), so the data does not back this change. {model}")
+    more = "more often" if a > b else "less often"
     if w.get("conflict"):
-        more = "more often" if a > b else "less often"
         return (f"The data points the other way: posts like this with {w['what']} got reactions "
-                f"{more} ({a:.0%} vs {b:.0%}). The model still scores this variant {higher} "
-                f"({p0:.0%} to {w['p']:.0%}), so treat it as a guess.")
+                f"{more} ({sa} vs {sb}). The model still scores this variant {higher} "
+                f"({m0} to {m1}), so treat it as a guess.")
     if not w["supported"]:
-        return (f"The data shows no clear difference for this feature ({a:.0%} vs {b:.0%} got "
+        return (f"The data shows no clear difference for this feature ({sa} vs {sb} got "
                 f"reactions). {model}")
-    more = "more often" if a > b else ("less often" if a < b else "equally often")
     return (f"In the data, posts like this with {w['what']} got reactions {more} "
-            f"({a:.0%} vs {b:.0%}). {model}")
+            f"({sa} vs {sb}). {model}")
 
 
 def score_drafts(model: Fitted, drafts: list[DevDraft], facts: dict | None,
